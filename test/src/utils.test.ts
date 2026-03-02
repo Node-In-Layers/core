@@ -1,8 +1,26 @@
 import { assert } from 'chai'
 import sinon from 'sinon'
-import { wrap, promiseWrap, memoizeValueSync } from '../../src/utils'
+import {
+  wrap,
+  promiseWrap,
+  memoizeValueSync,
+  timeCacheAsync,
+} from '../../src/utils'
 
 describe('/src/utils.ts', () => {
+  describe('#timeCacheAsync()', () => {
+    it('should call the function twice when lazy called twice', () => {
+      const func = sinon.stub().returns(5)
+      const cached = timeCacheAsync(1, func)
+      cached()
+      cached()
+      return new Promise(resolve => setTimeout(resolve, 2000))
+      cached()
+      const actual = func.callCount
+      const expected = 2
+      assert.equal(actual, expected)
+    })
+  })
   describe('#memorizeValueSync()', () => {
     it('should call the function twice when lazy called twice', () => {
       const func = sinon.stub().returns(5)

@@ -2,6 +2,8 @@ import merge from 'lodash/merge.js'
 import { v4 } from 'uuid'
 import AsyncLock from 'async-lock'
 import type { RequiresInitialization } from './types.js'
+import { addSeconds } from 'date-fns/addSeconds'
+import { isBefore } from 'date-fns/isBefore'
 
 /**
  * Wraps a function so that the returned wrapper carries all properties of the original function.
@@ -75,6 +77,34 @@ export const memoizeValue = <T, A extends Array<any>>(
   let called = false
   return async (...args: A) => {
     return lock.acquire(key, async () => {
+      if (!called) {
+        value = await method(...args)
+        // Read above about this.
+        // eslint-disable-next-line require-atomic-updates
+        called = true
+      }
+
+      return value as T
+    })
+  }
+  /* eslint-enable functional/no-let */
+}
+
+export const timeCacheAsync = <T, A extends Array<any>>(
+  ttlSecondsFromNow: number,
+  method: (...args: A) => Promise<T>
+) => {
+  const expiresAt = addSeconds(new Date(), ttlSecondsFromNow)
+  const key = v4()
+  const lock = new AsyncLock()
+  /* eslint-disable functional/no-let */
+  let value: any = undefined
+  let called = false
+  return async (...args: A) => {
+    return lock.acquire(key, async () => {
+      if (isBefore(expiresAt, new Date())) {
+        called = false
+      }
       if (!called) {
         value = await method(...args)
         // Read above about this.

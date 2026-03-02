@@ -93,6 +93,7 @@
   "dependencies": {
     "async-lock": "^1.4.1",
     "axios": "^1.7.9",
+    "date-fns": "^4.1.0",
     "functional-models": "^3.9.0",
     "lodash": "^4.17.23",
     "loglevel": "^1.9.2",
