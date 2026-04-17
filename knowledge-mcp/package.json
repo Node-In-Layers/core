@@ -14,8 +14,9 @@
     "nil-core-knowledge-mcp": "./bin/mcp_server.js"
   },
   "dependencies": {
+    "@l4t/mcp-ai": "^1.6.0",
     "@node-in-layers/core": "file:..",
-    "@node-in-layers/mcp-server": "^2.2.6",
+    "@node-in-layers/mcp-server": "^2.5.6",
     "argparse": "^2.0.1",
     "es-main": "^1.4.0",
     "lodash": "^4.17.21",

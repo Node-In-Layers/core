@@ -1365,3 +1365,55 @@ export type ModelCrudsServicesContext<
   },
   TContext
 >
+
+
+/**
+ * Zod Schema for CrossLayerProps
+ * @see https://monolithst.github.io/functional-models/modules/index.types.html#crosslayerprops
+ */
+export const crossLayerPropsSchema = z
+  .object({
+    logging: z
+      .object({
+        ids: z
+          .array(
+            z
+              .record(z.string(), z.string())
+              .describe(
+                'Each of these are individual objects, that have a key:id pair. Example: "ids": [{"myId":"123"},{"anotherId":"456"}]'
+              )
+          )
+          .optional(),
+      })
+      .loose()
+      .optional(),
+  })
+  .loose()
+  .describe(
+    'CrossLayerProps is an optional argument you can send with NIL MCP tool calls to enable end-to-end tracing across layers (features/services) and across multiple tool invocations. It carries correlation ids that the system logs at each hop so you can stitch together a full execution story.'
+  )
+
+/**
+ * Zod Schema for a JsonAble object.
+ * @see https://monolithst.github.io/functional-models/modules/index.types.html#jsonable
+ */
+export const jsonAbleSchema = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.undefined(),
+    z.array(jsonAbleSchema),
+    z.record(z.string(), jsonAbleSchema),
+  ])
+) as unknown as z.ZodType<JsonAble>
+
+/**
+ * Zod Schema for a JsonObj object.
+ * @see https://monolithst.github.io/functional-models/modules/index.types.html#jsonobj
+ */
+export const jsonObjSchema: z.ZodType<JsonObj> = z.record(
+  z.string(),
+  jsonAbleSchema
+)
