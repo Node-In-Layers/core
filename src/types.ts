@@ -1366,7 +1366,6 @@ export type ModelCrudsServicesContext<
   TContext
 >
 
-
 /**
  * Zod Schema for CrossLayerProps
  * @see https://monolithst.github.io/functional-models/modules/index.types.html#crosslayerprops
@@ -1417,3 +1416,13 @@ export const jsonObjSchema: z.ZodType<JsonObj> = z.record(
   z.string(),
   jsonAbleSchema
 )
+
+export type Maybe<T> = Readonly<{
+  instance: () => T | undefined
+  hasValue: () => boolean
+}>
+
+export type State<T> = Readonly<{
+  get: () => Maybe<T>
+  set: (value: T) => void
+}>

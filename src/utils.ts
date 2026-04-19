@@ -1,9 +1,9 @@
 import merge from 'lodash/merge.js'
 import { v4 } from 'uuid'
 import AsyncLock from 'async-lock'
-import type { RequiresInitialization } from './types.js'
 import { addSeconds } from 'date-fns/addSeconds'
 import { isBefore } from 'date-fns/isBefore'
+import type { Maybe, State, RequiresInitialization } from './types.js'
 
 /**
  * Wraps a function so that the returned wrapper carries all properties of the original function.
@@ -147,5 +147,39 @@ export const requiresInitialization = <T>(
     isInitialized: () => initialized,
     getInstance,
     initialize,
+  }
+}
+
+/**
+ * A wrapper around an instance, that may or may not have a value.
+ * @param _instance - The instance to wrap.
+ * @returns A Maybe object.
+ */
+export const maybe = <T>(_instance: T | undefined): Maybe<T> => {
+  return {
+    instance: () => _instance,
+    hasValue: () => _instance !== undefined,
+  }
+}
+
+/**
+ * An object that can be changed over time.
+ * @returns A State object.
+ */
+export const state = <T>(): State<T> => {
+  // eslint-disable-next-line functional/no-let
+  let _instance: T | undefined = undefined
+
+  const set = (value: T) => {
+    _instance = value
+  }
+
+  const get = () => {
+    return maybe(_instance)
+  }
+
+  return {
+    get,
+    set,
   }
 }
