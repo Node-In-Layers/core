@@ -166,9 +166,9 @@ export const maybe = <T>(_instance: T | undefined): Maybe<T> => {
  * An object that can be changed over time.
  * @returns A State object.
  */
-export const state = <T>(): State<T> => {
+export const state = <T>(initialValue?: T): State<T> => {
   // eslint-disable-next-line functional/no-let
-  let _instance: T | undefined = undefined
+  let _instance: T | undefined = initialValue ?? undefined
 
   const set = (value: T) => {
     _instance = value

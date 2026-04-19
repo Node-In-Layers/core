@@ -1,7 +1,7 @@
 {
   "name": "@node-in-layers/core",
   "type": "module",
-  "version": "1.15.9",
+  "version": "1.15.10",
   "description": "The core library for the Node In Layers rapid web development framework.",
   "main": "index.js",
   "scripts": {
