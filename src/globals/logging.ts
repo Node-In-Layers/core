@@ -459,7 +459,7 @@ const _subLogger = <TConfig extends Config = Config>(
     debug: _doLog(LogLevelNames.debug),
     info: _doLog(LogLevelNames.info),
     warn: _doLog(LogLevelNames.warn),
-    trace: _doLog(LogLevelNames.debug),
+    trace: _doLog(LogLevelNames.trace),
     error: _doLog(LogLevelNames.error),
     getSubLogger: (name: string) => {
       return _subLogger(context, logMethods, {
