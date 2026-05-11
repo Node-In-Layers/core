@@ -71,9 +71,10 @@ const consoleLogSimple = (logMessage: LogMessage) => {
   // eslint-disable-next-line functional/immutable-data
   const functionName = splitted.pop()
 
+  const level = logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   // @ts-ignore
   // eslint-disable-next-line no-console
-  console[logMessage.logLevel](
+  console[level](
     `${logMessage.datetime.toISOString()}: ${functionName} ${logMessage.message}`
   )
 }
