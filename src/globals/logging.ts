@@ -84,14 +84,15 @@ const consoleLogSimple = (logMessage: LogMessage) => {
  * @param logMessage
  */
 const consoleLogFull = (logMessage: LogMessage) => {
+  const level = logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   return logMessage.ids
     ? // @ts-ignore
       // eslint-disable-next-line no-console
-      console[logMessage.logLevel](
+      console[level](
         `${logMessage.datetime.toISOString()} ${logMessage.environment} ${logMessage.logLevel} ${logMessage.id} [${logMessage.logger}] {${_combineIds(logMessage.ids)}} ${logMessage.message}`
       )
     : // eslint-disable-next-line no-console
-      console[logMessage.logLevel](
+      console[level](
         `${logMessage.datetime.toISOString()} ${logMessage.environment} ${logMessage.logLevel} [${logMessage.logger}] ${logMessage.message}`
       )
 }
@@ -101,9 +102,10 @@ const consoleLogFull = (logMessage: LogMessage) => {
  * @param logMessage
  */
 const consoleLogJson = (logMessage: LogMessage) => {
+  const level = logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   // @ts-ignore
   // eslint-disable-next-line no-console
-  console[logMessage.logLevel](
+  console[level](
     JSON.stringify(
       {
         id: logMessage.id,
