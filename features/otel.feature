@@ -1,3 +1,4 @@
+@otel
 Feature: OpenTelemetry integration
 
   Scenario: feature-level ids are preserved when one feature calls another

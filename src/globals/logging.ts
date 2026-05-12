@@ -33,6 +33,8 @@ import {
   LogWrapSync,
   MaybePromise,
   LogInstanceOptions,
+  FunctionLogWrapOptions,
+  FunctionLogger,
 } from '../types.js'
 import { memoizeValueSync } from '../utils.js'
 import { createOtelLogMethod } from '../otel/libs.js'
@@ -48,6 +50,171 @@ const MAX_LOGGING_ATTEMPTS = 5
 
 const _isPromise = <T>(obj: any): obj is Promise<T> => {
   return obj && obj.then
+}
+
+type GetFunctionWrapLogLevel = (
+  layerName: CommonLayerName | string,
+  functionName?: string
+) => LogLevelNames
+
+const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
+  context: CommonContext<TConfig>,
+  input: Readonly<{
+    layerName: CommonLayerName | string
+    functionName: string
+    funcLogger: Logger
+    logLevel: LogLevelNames
+    omitWrapPayload: boolean
+    argsForExecuting: readonly unknown[]
+    execute: () => T | Promise<T>
+  }>
+): T | Promise<T> => {
+  const {
+    layerName,
+    functionName,
+    funcLogger,
+    logLevel,
+    omitWrapPayload,
+    argsForExecuting,
+    execute,
+  } = input
+
+  const doWork = () => {
+    funcLogger[logLevel](
+      `Executing ${layerName} function`,
+      omitWrapPayload
+        ? { layer: layerName }
+        : { layer: layerName, args: argsForExecuting }
+    )
+    // eslint-disable-next-line functional/no-try-statements
+    try {
+      const result = execute()
+      if (_isPromise(result)) {
+        return result
+          .then(r => {
+            funcLogger[logLevel](
+              `Executed ${layerName} function`,
+              omitWrapPayload ? {} : { result: r }
+            )
+            return r
+          })
+          .catch(e => {
+            funcLogger.error(
+              'Function failed with an exception',
+              createErrorObject(
+                'INTERNAL_ERROR',
+                `Layer function ${layerName}:${functionName}`,
+                e
+              )
+            )
+            throw e
+          })
+      }
+      funcLogger[logLevel](
+        `Executed ${layerName} function`,
+        omitWrapPayload ? {} : { result }
+      )
+      return result
+    } catch (e) {
+      funcLogger.error(
+        'Function failed with an exception',
+        createErrorObject(
+          'INTERNAL_ERROR',
+          `Layer function ${layerName}:${functionName}`,
+          e
+        )
+      )
+      throw e
+    }
+  }
+  const otel = get(context, `services.${CoreNamespace.otel}`) as
+    | OtelServices
+    | undefined
+  if (otel?.runWithTraceAndMetrics) {
+    return otel.runWithTraceAndMetrics(
+      { layerName, functionName, getIds: () => funcLogger.getIds() },
+      doWork
+    )
+  }
+  return doWork()
+}
+
+const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
+  context: CommonContext<TConfig>,
+  layerName: CommonLayerName | string,
+  idBranchParent: Logger,
+  scopeFunctionName: string,
+  templateCrossLayer: CrossLayerProps | undefined,
+  templateAdditionalData: Record<string, any> | undefined,
+  logLevelGetter: GetFunctionWrapLogLevel
+): FunctionLogger => {
+  const templateCore = (() => {
+    let core = idBranchParent
+      .getIdLogger(scopeFunctionName, 'functionCallId', v4())
+      .applyData({
+        function: scopeFunctionName,
+      })
+    core = core.applyData(combineLoggingProps(core, templateCrossLayer))
+    return templateAdditionalData
+      ? core.applyData(templateAdditionalData)
+      : core
+  })()
+
+  const wrap = <T>(
+    fn: () => T | Promise<T>,
+    options?: FunctionLogWrapOptions
+  ) => {
+    const crossLayer = options?.crossLayerProps
+    const draft = idBranchParent
+      .getIdLogger(scopeFunctionName, 'functionCallId', v4())
+      .applyData({
+        function: scopeFunctionName,
+      })
+    const funcLogger = draft.applyData(combineLoggingProps(draft, crossLayer))
+    const omitWrapPayload = Boolean(
+      get(crossLayer, 'logging.overrides.omitData')
+    )
+    const logLevel = logLevelGetter(layerName, scopeFunctionName)
+    const argsForExecuting = options?.args ?? []
+    return runLayerFunctionWrapBlock(context, {
+      layerName,
+      functionName: scopeFunctionName,
+      funcLogger,
+      logLevel,
+      omitWrapPayload,
+      argsForExecuting,
+      execute: fn,
+    })
+  }
+
+  const nestedGetFunctionLogger = (
+    childName: string,
+    clp?: CrossLayerProps
+  ) => {
+    return buildExtendedFunctionLogger(
+      context,
+      layerName,
+      templateCore,
+      childName,
+      clp,
+      undefined,
+      logLevelGetter
+    )
+  }
+
+  const nestedGetInnerLogger = (innerName: string, clp?: CrossLayerProps) => {
+    const inner = templateCore.getSubLogger(innerName).applyData({
+      function: innerName,
+    })
+    return inner.applyData(combineLoggingProps(inner, clp))
+  }
+
+  // @ts-ignore
+  return merge({}, templateCore, {
+    wrap,
+    getFunctionLogger: nestedGetFunctionLogger,
+    getInnerLogger: nestedGetInnerLogger,
+  })
 }
 
 const _combineIds = (id: readonly LogId[]) => {
@@ -225,23 +392,24 @@ const _layerLogger = <TConfig extends Config = Config>(
   const theLogger = theLogger1.applyData(
     combineLoggingProps(theLogger1, crossLayerProps)
   )
-  const logLevelGetter =
-    get(
+  const logLevelGetter: GetFunctionWrapLogLevel =
+    (get(
       context,
       `config${CoreNamespace.root}.logging.getFunctionWrapLogLevel`
-    ) || defaultGetFunctionWrapLogLevel
+    ) as GetFunctionWrapLogLevel | undefined) || defaultGetFunctionWrapLogLevel
 
   const getFunctionLogger = (
     functionName: string,
     crossLayerProps?: CrossLayerProps
   ) => {
-    const funcLogger = theLogger
-      .getIdLogger(functionName, 'functionCallId', v4())
-      .applyData({
-        function: functionName,
-      })
-    return funcLogger.applyData(
-      combineLoggingProps(funcLogger, crossLayerProps)
+    return buildExtendedFunctionLogger(
+      context,
+      layerName,
+      theLogger,
+      functionName,
+      crossLayerProps,
+      undefined,
+      logLevelGetter
     )
   }
 
@@ -266,8 +434,6 @@ const _layerLogger = <TConfig extends Config = Config>(
     func: TLogWrap,
     additionalData?: Record<string, any>
   ) => {
-    // @ts-ignore
-    const logLevel = logLevelGetter(layerName, functionName)
     return merge((...a: A) => {
       const [argsNoCrossLayer, crossLayer] = extractCrossLayerProps(a)
       const beforeFuncLogger = getFunctionLogger(functionName, crossLayer)
@@ -277,69 +443,22 @@ const _layerLogger = <TConfig extends Config = Config>(
       const omitWrapPayload = Boolean(
         get(crossLayer, 'logging.overrides.omitData')
       )
-      const doWork = () => {
-        funcLogger[logLevel](
-          `Executing ${layerName} function`,
-          omitWrapPayload
-            ? { layer: layerName }
-            : { layer: layerName, args: argsNoCrossLayer }
-        )
-        // eslint-disable-next-line functional/no-try-statements
-        try {
-          const result = func(
-            funcLogger,
+      const logLevel = logLevelGetter(layerName, functionName)
+      return runLayerFunctionWrapBlock(context, {
+        layerName,
+        functionName,
+        funcLogger,
+        logLevel,
+        omitWrapPayload,
+        argsForExecuting: argsNoCrossLayer,
+        execute: () =>
+          func(
+            funcLogger as FunctionLogger,
             // @ts-ignore
             ...argsNoCrossLayer,
             createCrossLayerProps(funcLogger, crossLayer)
-          )
-          if (_isPromise(result)) {
-            return result
-              .then(r => {
-                funcLogger[logLevel](
-                  `Executed ${layerName} function`,
-                  omitWrapPayload ? {} : { result: r }
-                )
-                return r
-              })
-              .catch(e => {
-                funcLogger.error(
-                  'Function failed with an exception',
-                  createErrorObject(
-                    'INTERNAL_ERROR',
-                    `Layer function ${layerName}:${functionName}`,
-                    e
-                  )
-                )
-                throw e
-              })
-          }
-          funcLogger[logLevel](
-            `Executed ${layerName} function`,
-            omitWrapPayload ? {} : { result }
-          )
-          return result
-        } catch (e) {
-          funcLogger.error(
-            'Function failed with an exception',
-            createErrorObject(
-              'INTERNAL_ERROR',
-              `Layer function ${layerName}:${functionName}`,
-              e
-            )
-          )
-          throw e
-        }
-      }
-      const otel = get(context, `services.${CoreNamespace.otel}`) as
-        | OtelServices
-        | undefined
-      if (otel?.runWithTraceAndMetrics) {
-        return otel.runWithTraceAndMetrics(
-          { layerName, functionName, getIds: () => funcLogger.getIds() },
-          doWork
-        )
-      }
-      return doWork()
+          ),
+      })
     }, func)
   }
 

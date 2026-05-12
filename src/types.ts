@@ -427,9 +427,42 @@ export type LogWrapAsync<T, A extends Array<any>> = (
 ) => Promise<T>
 
 /**
- * A function level logger.
+ * Optional settings for {@link FunctionLogger.wrap}.
  */
-export type FunctionLogger = Logger
+export type FunctionLogWrapOptions = Readonly<{
+  /** Values included in the Executing log payload as `args` when not omitted. */
+  args?: readonly unknown[]
+  /** Merged into the per-invocation function logger (same as layer {@link CrossLayerProps}). */
+  crossLayerProps?: CrossLayerProps
+}>
+
+/**
+ * Function-call scope logger: layer-style {@link FunctionLogger.wrap}, nested scopes, and all {@link Logger} methods.
+ */
+export type FunctionLogger = Logger &
+  Readonly<{
+    /**
+     * Runs `fn` with the same Executing/Executed logging (and OTel when configured) as a wrapped layer function.
+     */
+    wrap: <T>(
+      fn: () => T | Promise<T>,
+      options?: FunctionLogWrapOptions
+    ) => T | Promise<T>
+    /**
+     * Nested function scope under this logger's path (new `functionCallId`).
+     */
+    getFunctionLogger: (
+      name: string,
+      crossLayerProps?: CrossLayerProps
+    ) => FunctionLogger
+    /**
+     * Inner logger without a new function-call id (same idea as {@link LayerLogger.getInnerLogger}).
+     */
+    getInnerLogger: (
+      functionName: string,
+      crossLayerProps?: CrossLayerProps
+    ) => Logger
+  }>
 
 /**
  * A logger for a layer. (Services/Features/etc)
@@ -496,7 +529,7 @@ export type LayerLogger = Logger &
     getInnerLogger: (
       functionName: string,
       crossLayerProps?: CrossLayerProps
-    ) => FunctionLogger
+    ) => Logger
   }>
 
 /**

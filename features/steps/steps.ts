@@ -8,6 +8,8 @@ import {
 } from '@cucumber/cucumber'
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs/promises'
@@ -16,6 +18,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { CoreNamespace, LogFormat, LogLevelNames } from '../../src/types.js'
 import { loadSystem } from '../../src/entries.js'
+import { compositeLogger } from '../../src/globals/logging.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -67,7 +70,7 @@ const getCollectorLogs = (): Promise<string> =>
     .catch(() => '')
 
 // Read the collector file, handling truncation/null bytes and retrying until it has content.
-const readCollectorFile = async (maxAttempts = 10): Promise<string> => {
+const readCollectorFile = async (maxAttempts = 30): Promise<string> => {
   const attemptRead = async (remaining: number): Promise<string> => {
     if (remaining <= 0) {
       return ''
@@ -84,7 +87,7 @@ const readCollectorFile = async (maxAttempts = 10): Promise<string> => {
       // file may not exist yet; ignore and retry
     }
 
-    await sleep(100)
+    await sleep(250)
     return attemptRead(remaining - 1)
   }
 
@@ -96,8 +99,6 @@ const createDomain1 = () => ({
   services: {
     create: () => ({
       ping: x => {
-        console.log('INSIDE PING')
-        console.log(JSON.stringify(x, null, 2))
         return 'pong'
       },
     }),
@@ -109,6 +110,40 @@ const createDomain1 = () => ({
     }),
   },
 })
+
+const createDomainWrapDemo = () => ({
+  name: 'wrapDemo',
+  services: {
+    create: () => ({
+      noop: async () => undefined,
+    }),
+  },
+  features: {
+    create: (context: any) => ({
+      runWrappedPipeline: async (crossLayerProps?: Record<string, unknown>) => {
+        const log = context.log.getFunctionLogger(
+          'runWrappedPipeline',
+          crossLayerProps
+        )
+        return log.wrap(
+          async () => {
+            const innerLog = log.getFunctionLogger('innerStep')
+            return innerLog.wrap(
+              async () => {
+                innerLog.trace('inner trace', { detail: 'nested' })
+                return { step: 'inner-done' }
+              },
+              { args: [{ phase: 'inner' }] }
+            )
+          },
+          { args: [{ phase: 'outer' }] }
+        )
+      },
+    }),
+  },
+})
+
+const wrapDemoMessages: any[] = []
 
 // Test-only config factories keyed by name so step text can choose which to use.
 const CONFIGS = {
@@ -131,6 +166,27 @@ const CONFIGS = {
       },
     },
   }),
+  'wrap-demo': () => ({
+    systemName: 'nil-core-wrap-demo',
+    environment: 'cucumber-test',
+    [CoreNamespace.root]: {
+      apps: [createDomainWrapDemo()],
+      layerOrder: ['services', 'features'],
+      logging: {
+        logLevel: LogLevelNames.trace,
+        logFormat: [LogFormat.simple],
+        customLogger: {
+          getLogger: (context: unknown, props?: unknown) => {
+            return compositeLogger([
+              () => logMessage => {
+                wrapDemoMessages.push(logMessage)
+              },
+            ]).getLogger(context as any, props as any)
+          },
+        },
+      },
+    },
+  }),
 } as const
 
 class TestWorld {
@@ -141,39 +197,47 @@ class TestWorld {
 
 setWorldConstructor(TestWorld)
 
-Before({ timeout: 10_000 }, async function () {
+Before({ tags: '@otel', timeout: 10_000 }, async function () {
   // Ensure test/collector directories exist.
   await fs.mkdir(collectorDir, { recursive: true })
-  //await fs.rm(collectorLogPath, { force: true })
 
   // Ensure any previous collector instance is stopped, then start a fresh one.
   await stopCollector().catch(() => undefined)
+  // Drop stale OTLP export file so a later scenario cannot read the previous run's data,
+  // and so an empty file always means "this scenario produced nothing yet".
+  await fs.rm(collectorLogPath, { force: true }).catch(() => undefined)
+
   await startCollector()
 
-  // Start a fresh NodeSDK for this scenario that exports traces to the local collector.
+  // Register trace + log export so layer spans and LogFormat.otel records reach the collector.
   this.sdk = new NodeSDK({
     traceExporter: new OTLPTraceExporter({
       url: 'http://localhost:4318/v1/traces',
     }),
+    logRecordProcessors: [
+      new BatchLogRecordProcessor(
+        new OTLPLogExporter({
+          url: 'http://localhost:4318/v1/logs',
+        })
+      ),
+    ],
   })
   await this.sdk.start()
 })
 
-After(async function () {
-  // Shut down the per-scenario SDK.
+Before({ tags: '@wrap-demo' }, async function () {
+  wrapDemoMessages.length = 0
+})
+
+After({ tags: '@otel' }, async function () {
   if (this.sdk) {
     await this.sdk.shutdown()
     this.sdk = undefined
   }
-  //await fs.rm(collectorLogPath, { force: true })
-
-  // Capture and print container output (including shutdown messages).
   const logs = await getCollectorLogs()
   if (logs) {
     console.log('\n--- Collector logs (this scenario) ---\n' + logs + '\n---\n')
   }
-
-  // Tear down the collector for this scenario.
   await stopCollector()
 })
 
@@ -216,7 +280,7 @@ When(
 
 Then(
   'I should see telemetry in the collector',
-  { timeout: 10_000 },
+  { timeout: 30_000 },
   async function () {
     // Shut down this scenario's SDK so any in-process spans/logs are flushed to the collector.
     if (this.sdk) {
@@ -224,8 +288,8 @@ Then(
       this.sdk = undefined
     }
 
-    // Collector batch processor has timeout 1s; give it time to flush to file exporter.
-    await sleep(2000)
+    // Collector batch + file exporter need time after process shutdown (esp. when multiple scenarios run).
+    await sleep(4500)
     const content = await readCollectorFile()
 
     assert.ok(
@@ -237,7 +301,7 @@ Then(
 
 Then(
   'the collector logs should contain two featureId attributes',
-  { timeout: 10_000 },
+  { timeout: 30_000 },
   async function () {
     // Shut down this scenario's SDK so any in-process spans/logs are flushed to the collector.
     if (this.sdk) {
@@ -245,8 +309,7 @@ Then(
       this.sdk = undefined
     }
 
-    // Re-use the same wait/poll logic to ensure the collector has flushed logs.
-    await sleep(2000)
+    await sleep(4500)
     const content = await readCollectorFile()
 
     assert.ok(
@@ -279,3 +342,91 @@ Then(
     )
   }
 )
+
+When('I run the wrap demo pipeline', async function () {
+  const result = await this.system.features.wrapDemo.runWrappedPipeline()
+  assert.deepStrictEqual(result, { step: 'inner-done' })
+})
+
+Then('the captured logs show nested wrap execution', async function () {
+  const hasWrapArgPhase = (
+    m: { message?: string; args?: unknown },
+    phase: string
+  ) => {
+    if (m.message !== 'Executing features function') {
+      return false
+    }
+    const args = m.args
+    return (
+      Array.isArray(args) &&
+      args.some(
+        a =>
+          Boolean(a) &&
+          typeof a === 'object' &&
+          (a as { phase?: string }).phase === phase
+      )
+    )
+  }
+
+  const outerWrapExecuting = wrapDemoMessages.filter(m =>
+    hasWrapArgPhase(m as { message?: string; args?: unknown }, 'outer')
+  )
+  const innerWrapExecuting = wrapDemoMessages.filter(m =>
+    hasWrapArgPhase(m as { message?: string; args?: unknown }, 'inner')
+  )
+
+  assert.strictEqual(
+    outerWrapExecuting.length,
+    1,
+    `expected exactly one outer wrap Executing log (args phase outer), found ${outerWrapExecuting.length}`
+  )
+  assert.strictEqual(
+    innerWrapExecuting.length,
+    1,
+    `expected exactly one inner wrap Executing log (args phase inner), found ${innerWrapExecuting.length}`
+  )
+
+  const innerWrapExecuted = wrapDemoMessages.filter(
+    (m: { message?: string; function?: string; result?: { step?: string } }) =>
+      m.message === 'Executed features function' &&
+      m.function === 'innerStep' &&
+      m.result &&
+      typeof m.result === 'object' &&
+      m.result.step === 'inner-done'
+  )
+  assert.strictEqual(
+    innerWrapExecuted.length,
+    1,
+    'expected exactly one Executed log for innerStep with the inner wrap return value'
+  )
+
+  const runWrappedPipelineExecuted = wrapDemoMessages.filter(
+    (m: { message?: string; function?: string; result?: { step?: string } }) =>
+      m.message === 'Executed features function' &&
+      m.function === 'runWrappedPipeline' &&
+      m.result &&
+      typeof m.result === 'object' &&
+      m.result.step === 'inner-done'
+  )
+  assert.ok(
+    runWrappedPipelineExecuted.length >= 1,
+    `expected at least one Executed log for runWrappedPipeline (layer and/or explicit wrap), found ${runWrappedPipelineExecuted.length}`
+  )
+
+  const traceHit = wrapDemoMessages.find(
+    (m: { message?: string }) => m.message === 'inner trace'
+  )
+  assert.ok(traceHit, 'expected an inner trace log line')
+
+  const functions = wrapDemoMessages
+    .map((m: { function?: string }) => m.function)
+    .filter((f): f is string => Boolean(f))
+  assert.ok(
+    functions.includes('runWrappedPipeline'),
+    `expected runWrappedPipeline in log function fields: ${JSON.stringify(functions)}`
+  )
+  assert.ok(
+    functions.includes('innerStep'),
+    `expected innerStep in log function fields: ${JSON.stringify(functions)}`
+  )
+})
