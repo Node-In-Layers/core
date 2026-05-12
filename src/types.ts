@@ -341,6 +341,18 @@ export type ErrorObject = Readonly<{
 }>
 
 /**
+ * Per-hop options for automatic layer wrap logging. Values here are not forwarded
+ * past the receiving call (see {@link createCrossLayerProps}).
+ * @interface
+ */
+export type CrossLayerLoggingOverrides = Readonly<{
+  /**
+   * When true, "Executing …" / "Executed …" wrap logs omit args and result payloads.
+   */
+  omitData?: boolean
+}>
+
+/**
  * Common props that can be passed between layers
  * @interface
  */
@@ -353,6 +365,11 @@ export type CrossLayerProps<T extends object = object> = Readonly<{
      * A stack of {@link LogId} objects carrying trace context across layer boundaries.
      */
     ids?: readonly LogId[]
+    /**
+     * Options for the immediate next layer hop only; stripped when the framework
+     * builds props for inner calls via {@link createCrossLayerProps}.
+     */
+    overrides?: CrossLayerLoggingOverrides
   }
 }> &
   T
@@ -1382,6 +1399,17 @@ export const crossLayerPropsSchema = z
                 'Each of these are individual objects, that have a key:id pair. Example: "ids": [{"myId":"123"},{"anotherId":"456"}]'
               )
           )
+          .optional(),
+        overrides: z
+          .object({
+            omitData: z
+              .boolean()
+              .optional()
+              .describe(
+                'When true, layer wrap logs for this hop omit args and result payloads.'
+              ),
+          })
+          .loose()
           .optional(),
       })
       .loose()

@@ -6,6 +6,10 @@ import {
   capForLogging,
   extractCrossLayerProps,
 } from '../../../src/globals/libs.js'
+import {
+  createCrossLayerProps,
+  crossLayerPropsWithLoggingOverrides,
+} from '../../../src/libs.js'
 import { v4 } from 'uuid'
 
 describe('/src/globals/libs.ts', () => {
@@ -105,6 +109,41 @@ describe('/src/globals/libs.ts', () => {
       const cross = { logging: { ids: [{ requestId: 'q2' }] } }
       const result = combineLoggingProps(logger, cross as any)
       assert.deepEqual(result.ids, [{ runtimeId: 'r1' }, { requestId: 'q2' }])
+    })
+
+    it('does not include logging.overrides in merged props for applyData', () => {
+      const logger = { getIds: () => [{ runtimeId: 'r1' }] } as any
+      const cross = crossLayerPropsWithLoggingOverrides(
+        { omitData: true },
+        { logging: { ids: [{ requestId: 'q2' }] } }
+      )
+      const result = combineLoggingProps(logger, cross as any)
+      assert.isUndefined(result.overrides)
+      assert.deepEqual(result.ids, [{ runtimeId: 'r1' }, { requestId: 'q2' }])
+    })
+  })
+
+  describe('#createCrossLayerProps()', () => {
+    it('removes logging.overrides from output so they are not forwarded', () => {
+      const logger = { getIds: () => [{ functionCallId: 'fc1' }] } as any
+      const merged = createCrossLayerProps(
+        logger,
+        crossLayerPropsWithLoggingOverrides(
+          { omitData: true },
+          { logging: { ids: [{ requestId: 'req-1' }] } }
+        ) as any
+      )
+      assert.isUndefined(merged.logging?.overrides)
+      assert.isArray(merged.logging?.ids)
+    })
+  })
+
+  describe('#crossLayerPropsWithLoggingOverrides()', () => {
+    it('merges overrides while preserving ids', () => {
+      const base = { logging: { ids: [{ x: '1' }] } }
+      const r = crossLayerPropsWithLoggingOverrides({ omitData: true }, base)
+      assert.deepEqual(r.logging?.ids, [{ x: '1' }])
+      assert.equal(r.logging?.overrides?.omitData, true)
     })
   })
 })

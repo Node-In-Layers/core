@@ -895,3 +895,23 @@ You can setup the server by setting up Cursor (or similar) with this configurati
 ```
 
 You can learn more about this here [Knowledge MCP](./knowledge-mcp/README.md)
+
+## FAQ
+
+### How do I prevent the framework from logging large or sensitive arguments or responses?
+
+Layer functions are wrapped so each call logs an “Executing …” line (with arguments) and an “Executed …” line (with the return value). For a **single downstream call** where you want those wrap logs to omit payloads, merge `logging.overrides.omitData` into the `crossLayerProps` you pass using `crossLayerPropsWithLoggingOverrides` from `@node-in-layers/core`:
+
+```typescript
+import { crossLayerPropsWithLoggingOverrides } from '@node-in-layers/core'
+
+const myFeature = async (arg, crossLayerProps?) => {
+  const next = crossLayerPropsWithLoggingOverrides(
+    { omitData: true },
+    crossLayerProps
+  )
+  return context.services.myDomain.myService(arg, next)
+}
+```
+
+That hop’s wrap logs will still record the layer and function name, but not the `args` or `result` fields. The framework does **not** forward `logging.overrides` to the callee: when the next layer builds props via `createCrossLayerProps`, overrides are stripped so inner functions never receive them and they do not leak down the chain unless you set them again on a later call.

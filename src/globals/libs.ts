@@ -1,5 +1,6 @@
 import get from 'lodash/get.js'
 import merge from 'lodash/merge.js'
+import omit from 'lodash/omit.js'
 import { LogLevelNames, CrossLayerProps, Logger } from '../types.js'
 import { combineCrossLayerProps } from '../libs.js'
 
@@ -30,7 +31,7 @@ const combineLoggingProps = (
   logger: Logger,
   crossLayerProps?: CrossLayerProps
 ) => {
-  return combineCrossLayerProps(
+  const merged = combineCrossLayerProps(
     {
       logging: {
         ids: logger.getIds(),
@@ -38,6 +39,10 @@ const combineLoggingProps = (
     },
     crossLayerProps || {}
   ).logging
+  if (!merged?.overrides) {
+    return merged
+  }
+  return omit(merged, 'overrides')
 }
 
 const isCrossLayerLoggingProps = (

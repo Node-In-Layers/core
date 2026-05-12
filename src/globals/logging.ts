@@ -71,7 +71,8 @@ const consoleLogSimple = (logMessage: LogMessage) => {
   // eslint-disable-next-line functional/immutable-data
   const functionName = splitted.pop()
 
-  const level = logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
+  const level =
+    logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   // @ts-ignore
   // eslint-disable-next-line no-console
   console[level](
@@ -84,7 +85,8 @@ const consoleLogSimple = (logMessage: LogMessage) => {
  * @param logMessage
  */
 const consoleLogFull = (logMessage: LogMessage) => {
-  const level = logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
+  const level =
+    logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   return logMessage.ids
     ? // @ts-ignore
       // eslint-disable-next-line no-console
@@ -102,7 +104,8 @@ const consoleLogFull = (logMessage: LogMessage) => {
  * @param logMessage
  */
 const consoleLogJson = (logMessage: LogMessage) => {
-  const level = logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
+  const level =
+    logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   // @ts-ignore
   // eslint-disable-next-line no-console
   console[level](
@@ -271,11 +274,16 @@ const _layerLogger = <TConfig extends Config = Config>(
       const funcLogger = additionalData
         ? beforeFuncLogger.applyData(additionalData)
         : beforeFuncLogger
+      const omitWrapPayload = Boolean(
+        get(crossLayer, 'logging.overrides.omitData')
+      )
       const doWork = () => {
-        funcLogger[logLevel](`Executing ${layerName} function`, {
-          layer: layerName,
-          args: argsNoCrossLayer,
-        })
+        funcLogger[logLevel](
+          `Executing ${layerName} function`,
+          omitWrapPayload
+            ? { layer: layerName }
+            : { layer: layerName, args: argsNoCrossLayer }
+        )
         // eslint-disable-next-line functional/no-try-statements
         try {
           const result = func(
@@ -287,9 +295,10 @@ const _layerLogger = <TConfig extends Config = Config>(
           if (_isPromise(result)) {
             return result
               .then(r => {
-                funcLogger[logLevel](`Executed ${layerName} function`, {
-                  result: r,
-                })
+                funcLogger[logLevel](
+                  `Executed ${layerName} function`,
+                  omitWrapPayload ? {} : { result: r }
+                )
                 return r
               })
               .catch(e => {
@@ -304,9 +313,10 @@ const _layerLogger = <TConfig extends Config = Config>(
                 throw e
               })
           }
-          funcLogger[logLevel](`Executed ${layerName} function`, {
-            result,
-          })
+          funcLogger[logLevel](
+            `Executed ${layerName} function`,
+            omitWrapPayload ? {} : { result }
+          )
           return result
         } catch (e) {
           funcLogger.error(

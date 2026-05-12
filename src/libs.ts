@@ -27,6 +27,7 @@ import {
   CommonContext,
   Logger,
   SyncNilFunction,
+  CrossLayerLoggingOverrides,
 } from './types.js'
 
 /**
@@ -422,9 +423,24 @@ export const isErrorObject = (value: unknown): value is ErrorObject => {
   return true
 }
 
+const stripLoggingOverridesFromCrossLayerProps = (
+  crossLayerProps: CrossLayerProps
+): CrossLayerProps => {
+  if (!get(crossLayerProps, 'logging.overrides')) {
+    return crossLayerProps
+  }
+  const logging = crossLayerProps.logging || {}
+  const loggingWithoutOverrides = omit(merge({}, logging), 'overrides')
+  return merge({}, omit(crossLayerProps, 'logging'), {
+    logging: loggingWithoutOverrides,
+  }) as CrossLayerProps
+}
+
 /**
  * Builds a {@link CrossLayerProps} object by merging the logger's current ids with any
  * ids already present in the provided cross-layer props. Ensures ids are deduplicated.
+ * {@link CrossLayerProps.logging.overrides} from the input are not included in the result
+ * so they do not propagate past this hop.
  * @param logger - The current logger (used to extract its id stack).
  * @param crossLayerProps - Any existing cross-layer props to merge into.
  */
@@ -433,7 +449,37 @@ export const createCrossLayerProps = (
   crossLayerProps?: CrossLayerProps
 ) => {
   const ids = logger.getIds()
-  return combineCrossLayerProps(crossLayerProps || {}, { logging: { ids } })
+  const base = crossLayerProps
+    ? stripLoggingOverridesFromCrossLayerProps(crossLayerProps)
+    : ({} as CrossLayerProps)
+  return combineCrossLayerProps(base, { logging: { ids } })
+}
+
+/**
+ * Merges {@link CrossLayerLoggingOverrides} into optional base {@link CrossLayerProps}
+ * for the next downstream call (for example from a feature into a service). The base
+ * should include `logging.ids` from your layer entry so the last argument is still
+ * recognized as {@link CrossLayerProps}.
+ *
+ * @example
+ * ```typescript
+ * const next = crossLayerPropsWithLoggingOverrides({ omitData: true }, crossLayerProps)
+ * await context.services.myDomain.doThing(args, next)
+ * ```
+ * @param overrides - Override flags for this hop only.
+ * @param crossLayerProps - Existing cross-layer props from your function (optional).
+ */
+export const crossLayerPropsWithLoggingOverrides = (
+  overrides: CrossLayerLoggingOverrides,
+  crossLayerProps?: CrossLayerProps
+): CrossLayerProps => {
+  const base = crossLayerProps || ({} as CrossLayerProps)
+  const prevLogging = base.logging || {}
+  return merge({}, base, {
+    logging: merge({}, prevLogging, {
+      overrides: merge({}, prevLogging.overrides || {}, overrides),
+    }),
+  }) as CrossLayerProps
 }
 
 /**
