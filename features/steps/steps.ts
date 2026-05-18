@@ -10,6 +10,8 @@ import { NodeSDK } from '@opentelemetry/sdk-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs'
+import { metrics, trace } from '@opentelemetry/api'
+import { logs } from '@opentelemetry/api-logs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs/promises'
@@ -26,6 +28,18 @@ const __dirname = path.dirname(__filename)
 const dataDir = path.resolve(__dirname, '..', 'data')
 const collectorDir = path.join(dataDir, 'collector')
 const collectorLogPath = path.join(collectorDir, 'features-otel.json')
+
+/**
+ * NodeSDK.shutdown() shuts providers but does not unregister @opentelemetry/api globals.
+ * In particular, api-logs ignores a second setGlobalLoggerProvider if a global already
+ * exists, so the next scenario would keep using a shut-down logger provider and export
+ * nothing. Clearing globals after shutdown makes back-to-back @otel scenarios reliable.
+ */
+const resetOpenTelemetryApiGlobals = (): void => {
+  trace.disable()
+  metrics.disable()
+  logs.disable()
+}
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -258,6 +272,10 @@ Before({ tags: '@otel', timeout: 10_000 }, async function () {
   // Ensure test/collector directories exist.
   await fs.mkdir(collectorDir, { recursive: true })
 
+  // If a prior scenario ended without running Then/After (or only partially), globals may
+  // still be registered and would block the next NodeSDK.start().
+  resetOpenTelemetryApiGlobals()
+
   // Ensure any previous collector instance is stopped, then start a fresh one.
   await stopCollector().catch(() => undefined)
   // Drop stale OTLP export file so a later scenario cannot read the previous run's data,
@@ -295,9 +313,14 @@ After({ tags: '@otel' }, async function () {
     await this.sdk.shutdown()
     this.sdk = undefined
   }
-  const logs = await getCollectorLogs()
-  if (logs) {
-    console.log('\n--- Collector logs (this scenario) ---\n' + logs + '\n---\n')
+  resetOpenTelemetryApiGlobals()
+  const collectorContainerLogs = await getCollectorLogs()
+  if (collectorContainerLogs) {
+    console.log(
+      '\n--- Collector logs (this scenario) ---\n' +
+        collectorContainerLogs +
+        '\n---\n'
+    )
   }
   await stopCollector()
 })
@@ -348,6 +371,7 @@ Then(
       await this.sdk.shutdown()
       this.sdk = undefined
     }
+    resetOpenTelemetryApiGlobals()
 
     // Collector batch + file exporter need time after process shutdown (esp. when multiple scenarios run).
     await sleep(4500)
@@ -369,6 +393,7 @@ Then(
       await this.sdk.shutdown()
       this.sdk = undefined
     }
+    resetOpenTelemetryApiGlobals()
 
     await sleep(4500)
     const content = await readCollectorFile()
@@ -430,10 +455,12 @@ Then(
     assert.ok(
       hit,
       `expected Executing services function for secretEcho; messages: ${JSON.stringify(
-        omitDataServiceMessages.map((m: { message?: string; function?: string }) => ({
-          message: m.message,
-          function: m.function,
-        }))
+        omitDataServiceMessages.map(
+          (m: { message?: string; function?: string }) => ({
+            message: m.message,
+            function: m.function,
+          })
+        )
       )}`
     )
     assert.ok(
@@ -448,7 +475,8 @@ Then(
   async function () {
     const hit = omitDataServiceMessages.find(
       (m: { message?: string; function?: string }) =>
-        m.message === 'Executed services function' && m.function === 'secretEcho'
+        m.message === 'Executed services function' &&
+        m.function === 'secretEcho'
     )
     assert.ok(hit, 'expected Executed services function for secretEcho')
     assert.ok(
@@ -463,7 +491,8 @@ Then(
   async function () {
     const executing = omitDataServiceMessages.find(
       (m: { message?: string; function?: string }) =>
-        m.message === 'Executing services function' && m.function === 'secretEcho'
+        m.message === 'Executing services function' &&
+        m.function === 'secretEcho'
     )
     assert.ok(executing, 'expected Executing services function for secretEcho')
     assert.ok(
@@ -472,7 +501,8 @@ Then(
     )
     const executed = omitDataServiceMessages.find(
       (m: { message?: string; function?: string }) =>
-        m.message === 'Executed services function' && m.function === 'secretEcho'
+        m.message === 'Executed services function' &&
+        m.function === 'secretEcho'
     )
     assert.ok(executed, 'expected Executed services function for secretEcho')
     assert.ok(

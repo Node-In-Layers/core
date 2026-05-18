@@ -557,8 +557,7 @@ const features = {
                   const newFunc = merge((...args2) => {
                     const [argsNoCrossLayer, crossLayer] =
                       extractCrossLayerProps(args2)
-                    // Forward raw crossLayerProps so downstream layer _logWrap can read
-                    // logging.overrides (e.g. omitData) before createCrossLayerProps strips them.
+                    // Automatically create the crossLayerProps
                     // @ts-ignore
                     return func(
                       ...argsNoCrossLayer,
@@ -717,8 +716,7 @@ const features = {
                     const newFunc = merge((...args2) => {
                       const [argsNoCrossLayer, crossLayer] =
                         extractCrossLayerProps(args2)
-                      // Forward raw crossLayerProps so downstream layer _logWrap can read
-                      // logging.overrides (e.g. omitData) before createCrossLayerProps strips them.
+                      // Automatically create the crossLayerProps
                       // @ts-ignore
                       return func(
                         ...argsNoCrossLayer,

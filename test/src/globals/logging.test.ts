@@ -401,6 +401,48 @@ describe('/src/globals/logging.ts', () => {
         assert.equal(mockLogMethod.firstCall.args[0].extra, 'data')
       })
 
+      it('should swallow synchronous log sink failures and still call other sinks', () => {
+        const stderrStub = sinon
+          .stub(process.stderr, 'write')
+          .returns(true as unknown as boolean)
+        const badSink = sinon.stub().throws(new Error('BSON failure'))
+        const goodSink = sinon.stub()
+        const logger = compositeLogger([() => badSink, () => goodSink])
+        const { context } = _getMockLogger()
+        logger.getLogger(context).info('Test')
+        assert.isTrue(badSink.calledOnce)
+        assert.isTrue(goodSink.calledOnce)
+        const written = stderrStub
+          .getCalls()
+          .map(c => String(c.args[0]))
+          .join('')
+        assert.include(written, '[@node-in-layers/core] Log sink failed')
+        assert.include(written, 'BSON failure')
+        stderrStub.restore()
+      })
+
+      it('should swallow asynchronous log sink rejections', async () => {
+        const stderrStub = sinon
+          .stub(process.stderr, 'write')
+          .returns(true as unknown as boolean)
+        const badSink = sinon
+          .stub()
+          .returns(Promise.reject(new Error('async BSON')))
+        const goodSink = sinon.stub().resolves(undefined)
+        const logger = compositeLogger([() => badSink, () => goodSink])
+        const { context } = _getMockLogger()
+        await logger.getLogger(context).info('Test')
+        assert.isTrue(badSink.calledOnce)
+        assert.isTrue(goodSink.calledOnce)
+        const written = stderrStub
+          .getCalls()
+          .map(c => String(c.args[0]))
+          .join('')
+        assert.include(written, '[@node-in-layers/core] Log sink failed')
+        assert.include(written, 'async BSON')
+        stderrStub.restore()
+      })
+
       describe('#getAppLogger()', () => {
         it('should set app name in logger', () => {
           const { context, logger, mockLogMethod } = _getMockLogger()

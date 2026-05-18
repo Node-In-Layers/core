@@ -7,3 +7,4 @@ coverage
 .nyc_output/
 doc/api/openapi/openapi.yml.hbs
 doc/api/openapi/openapi.yml
+features/data/

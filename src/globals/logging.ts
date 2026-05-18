@@ -52,6 +52,20 @@ const _isPromise = <T>(obj: any): obj is Promise<T> => {
   return obj && obj.then
 }
 
+const _logSinkFailure = (error: unknown) => {
+  const message =
+    error instanceof Error
+      ? `${error.message}${error.stack ? `\n${error.stack}` : ''}`
+      : String(error)
+  const line = `[@node-in-layers/core] Log sink failed: ${message}\n`
+  // eslint-disable-next-line functional/no-try-statements
+  try {
+    process.stderr.write(line)
+  } catch {
+    // ignore — never let a broken sink take down the process
+  }
+}
+
 type GetFunctionWrapLogLevel = (
   layerName: CommonLayerName | string,
   functionName?: string
@@ -149,15 +163,17 @@ const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
   logLevelGetter: GetFunctionWrapLogLevel
 ): FunctionLogger => {
   const templateCore = (() => {
-    let core = idBranchParent
+    const withIds = idBranchParent
       .getIdLogger(scopeFunctionName, 'functionCallId', v4())
       .applyData({
         function: scopeFunctionName,
       })
-    core = core.applyData(combineLoggingProps(core, templateCrossLayer))
+    const withLogging = withIds.applyData(
+      combineLoggingProps(withIds, templateCrossLayer)
+    )
     return templateAdditionalData
-      ? core.applyData(templateAdditionalData)
-      : core
+      ? withLogging.applyData(templateAdditionalData)
+      : withLogging
   })()
 
   const wrap = <T>(
@@ -340,7 +356,7 @@ const logTcp = (context: CommonContext) => {
             return true
           })
           .catch(e => {
-            // TODO: Narrow down the scope of these catches. Example, depending on error, maybe you do a retry.
+            // TODO: distinguish retryable vs permanent errors here if TCP logging needs finer control.
             console.warn('Logging error')
             console.warn(e)
             return false
@@ -545,45 +561,65 @@ const _subLogger = <TConfig extends Config = Config>(
       if (_shouldIgnore(theLogLevel, logLevel)) {
         return undefined
       }
-      const dataOrErrorObj =
-        typeof dataOrError === 'object' && dataOrError instanceof Error
-          ? createErrorObject('INTERNAL_ERROR', 'Unknown error', dataOrError)
-          : dataOrError
-      const funcs = getLogMethods.map(x => x(context))
-      const isError = isErrorObject(dataOrErrorObj)
-      const { value: data } = safeJson(
-        merge({}, props.data, isError ? {} : dataOrErrorObj)
-      )
+      // eslint-disable-next-line functional/no-try-statements
+      try {
+        const dataOrErrorObj =
+          typeof dataOrError === 'object' && dataOrError instanceof Error
+            ? createErrorObject('INTERNAL_ERROR', 'Unknown error', dataOrError)
+            : dataOrError
+        const funcs = getLogMethods.map(x => x(context))
+        const isError = isErrorObject(dataOrErrorObj)
+        const { value: data } = safeJson(
+          merge({}, props.data, isError ? {} : dataOrErrorObj)
+        )
 
-      const theData = options?.ignoreSizeLimit
-        ? data
-        : capForLogging(
-            data,
-            context.config[CoreNamespace.root].logging.maxLogSizeInCharacters
-          )
-      const logMessage = {
-        id: v4(),
-        environment: context.constants.environment,
-        datetime: new Date(),
-        logLevel,
-        message,
-        ids: props.ids,
-        logger: props.names.join(':'),
-        ...(isError ? { error: dataOrErrorObj.error } : {}),
-        ...theData,
-        ...omit(props, ['ids', 'names', 'data', 'error']),
-      }
-      const result = funcs.map(x => {
-        return x(logMessage)
-      })
-      const promises = result.filter(_isPromise)
-      if (promises.length > 0) {
-        return Promise.resolve().then(async () => {
-          await Promise.all(promises)
-          return
+        const maxLogChars =
+          context.config[CoreNamespace.root].logging.maxLogSizeInCharacters
+        const theData = options?.ignoreSizeLimit
+          ? data
+          : capForLogging(data, maxLogChars)
+        const logMessage = {
+          id: v4(),
+          environment: context.constants.environment,
+          datetime: new Date(),
+          logLevel,
+          message,
+          ids: props.ids,
+          logger: props.names.join(':'),
+          ...(isError
+            ? {
+                error: options?.ignoreSizeLimit
+                  ? dataOrErrorObj.error
+                  : capForLogging(dataOrErrorObj.error as any, maxLogChars),
+              }
+            : {}),
+          ...theData,
+          ...omit(props, ['ids', 'names', 'data', 'error']),
+        }
+        const result = funcs.map(x => {
+          // eslint-disable-next-line functional/no-try-statements
+          try {
+            return x(logMessage)
+          } catch (e) {
+            _logSinkFailure(e)
+            return undefined
+          }
         })
+        const promises = result.filter(_isPromise).map(p =>
+          Promise.resolve(p).catch(e => {
+            _logSinkFailure(e)
+          })
+        )
+        if (promises.length > 0) {
+          return Promise.resolve().then(async () => {
+            await Promise.all(promises)
+          })
+        }
+        return undefined
+      } catch (e) {
+        _logSinkFailure(e)
+        return undefined
       }
-      return undefined
     }
 
   return {

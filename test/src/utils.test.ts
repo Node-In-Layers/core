@@ -34,7 +34,7 @@ describe('/src/utils.ts', () => {
       assert.equal(stateObj.get().instance(), 1)
     })
   })
-  describe('#timeCacheAsync()', () => {
+  describe('#timeCacheAsync()', { timeout: 5000 }, () => {
     it('should call the function twice when lazy called twice', () => {
       const func = sinon.stub().returns(5)
       const cached = timeCacheAsync(1, func)

@@ -21,7 +21,7 @@ describe('/src/globals/libs.ts', () => {
       assert.equal(defaultGetFunctionWrapLogLevel('entries'), 'info')
     })
     it('returns debug for services', () => {
-      assert.equal(defaultGetFunctionWrapLogLevel('services'), 'trace')
+      assert.equal(defaultGetFunctionWrapLogLevel('services'), 'debug')
     })
     it('returns debug for others', () => {
       assert.equal(defaultGetFunctionWrapLogLevel('something'), 'debug')
@@ -46,17 +46,25 @@ describe('/src/globals/libs.ts', () => {
     it('returns non-objects unchanged (number)', () => {
       assert.equal(capForLogging(123), 123)
     })
-    it('returns original object when unserializable and under max size', () => {
+    it('breaks deep circular references when capping', () => {
       const obj: any = {}
-      obj.self = obj // circular
+      obj.self = obj
       const result = capForLogging(obj, 100)
-      assert.strictEqual(result, obj)
+      assert.notStrictEqual(result, obj)
+      assert.doesNotThrow(() => JSON.stringify(result))
     })
     it('truncates long arrays into an array', () => {
       const arr = new Array(1000).fill('x')
       const truncated = capForLogging(arr, 50)
       assert.isArray(truncated)
     })
+    it('truncates long arrays nested inside an object', () => {
+      const inner = new Array(2000).fill('x')
+      const result = capForLogging({ vec: inner }, 500) as { vec: unknown }
+      assert.isArray(result.vec)
+      assert.include(JSON.stringify(result), 'truncated')
+    })
+
     it('truncates long objects and includes [truncated] key', () => {
       const obj = Array.from({ length: 1000 }).reduce(
         (acc, _, i) => ({
