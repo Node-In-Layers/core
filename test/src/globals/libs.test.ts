@@ -20,7 +20,7 @@ describe('/src/globals/libs.ts', () => {
     it('returns info for entries', () => {
       assert.equal(defaultGetFunctionWrapLogLevel('entries'), 'info')
     })
-    it('returns trace for services', () => {
+    it('returns debug for services', () => {
       assert.equal(defaultGetFunctionWrapLogLevel('services'), 'trace')
     })
     it('returns debug for others', () => {

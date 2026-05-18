@@ -18,6 +18,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { CoreNamespace, LogFormat, LogLevelNames } from '../../src/types.js'
 import { loadSystem } from '../../src/entries.js'
+import { crossLayerPropsWithLoggingOverrides } from '../../src/libs.js'
 import { compositeLogger } from '../../src/globals/logging.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -144,6 +145,41 @@ const createDomainWrapDemo = () => ({
 })
 
 const wrapDemoMessages: any[] = []
+const omitDataServiceMessages: any[] = []
+
+const createDomainOmitDataServiceDemo = () => ({
+  name: 'omitDataSvc',
+  services: {
+    create: () => ({
+      secretEcho: (payload: { secret: string }) => ({
+        len: payload.secret.length,
+      }),
+    }),
+  },
+  features: {
+    create: (context: any) => ({
+      callWithOmit: () => {
+        const next = crossLayerPropsWithLoggingOverrides(
+          { omitData: true },
+          { logging: { ids: [{ omitDataFeatureTest: 'with-omit' }] } }
+        )
+        return context.services.omitDataSvc.secretEcho(
+          { secret: 'classified' },
+          next
+        )
+      },
+      callWithoutOmit: () => {
+        const next = {
+          logging: { ids: [{ omitDataFeatureTest: 'no-omit' }] },
+        }
+        return context.services.omitDataSvc.secretEcho(
+          { secret: 'visible' },
+          next
+        )
+      },
+    }),
+  },
+})
 
 // Test-only config factories keyed by name so step text can choose which to use.
 const CONFIGS = {
@@ -180,6 +216,27 @@ const CONFIGS = {
             return compositeLogger([
               () => logMessage => {
                 wrapDemoMessages.push(logMessage)
+              },
+            ]).getLogger(context as any, props as any)
+          },
+        },
+      },
+    },
+  }),
+  'omit-data-service': () => ({
+    systemName: 'nil-core-omit-data-service',
+    environment: 'cucumber-test',
+    [CoreNamespace.root]: {
+      apps: [createDomainOmitDataServiceDemo()],
+      layerOrder: ['services', 'features'],
+      logging: {
+        logLevel: LogLevelNames.trace,
+        logFormat: [LogFormat.simple],
+        customLogger: {
+          getLogger: (context: unknown, props?: unknown) => {
+            return compositeLogger([
+              () => logMessage => {
+                omitDataServiceMessages.push(logMessage)
               },
             ]).getLogger(context as any, props as any)
           },
@@ -227,6 +284,10 @@ Before({ tags: '@otel', timeout: 10_000 }, async function () {
 
 Before({ tags: '@wrap-demo' }, async function () {
   wrapDemoMessages.length = 0
+})
+
+Before({ tags: '@omit-data-service' }, async function () {
+  omitDataServiceMessages.length = 0
 })
 
 After({ tags: '@otel' }, async function () {
@@ -347,6 +408,79 @@ When('I run the wrap demo pipeline', async function () {
   const result = await this.system.features.wrapDemo.runWrappedPipeline()
   assert.deepStrictEqual(result, { step: 'inner-done' })
 })
+
+When('I call omit-data service with omitData enabled', async function () {
+  const result = await this.system.features.omitDataSvc.callWithOmit()
+  assert.deepStrictEqual(result, { len: 10 })
+})
+
+When('I call omit-data service with omitData disabled', async function () {
+  const result = await this.system.features.omitDataSvc.callWithoutOmit()
+  assert.deepStrictEqual(result, { len: 7 })
+})
+
+Then(
+  'the captured logs show Executing services function without args for secretEcho',
+  async function () {
+    const hit = omitDataServiceMessages.find(
+      (m: { message?: string; function?: string }) =>
+        m.message === 'Executing services function' &&
+        m.function === 'secretEcho'
+    )
+    assert.ok(
+      hit,
+      `expected Executing services function for secretEcho; messages: ${JSON.stringify(
+        omitDataServiceMessages.map((m: { message?: string; function?: string }) => ({
+          message: m.message,
+          function: m.function,
+        }))
+      )}`
+    )
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(hit, 'args'),
+      'Executing services log should not include args when omitData is set'
+    )
+  }
+)
+
+Then(
+  'the captured logs show Executed services function without result for secretEcho',
+  async function () {
+    const hit = omitDataServiceMessages.find(
+      (m: { message?: string; function?: string }) =>
+        m.message === 'Executed services function' && m.function === 'secretEcho'
+    )
+    assert.ok(hit, 'expected Executed services function for secretEcho')
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(hit, 'result'),
+      'Executed services log should not include result when omitData is set'
+    )
+  }
+)
+
+Then(
+  'the captured logs show secretEcho service wrap with args and result',
+  async function () {
+    const executing = omitDataServiceMessages.find(
+      (m: { message?: string; function?: string }) =>
+        m.message === 'Executing services function' && m.function === 'secretEcho'
+    )
+    assert.ok(executing, 'expected Executing services function for secretEcho')
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(executing, 'args'),
+      'expected args on Executing log when omitData is off'
+    )
+    const executed = omitDataServiceMessages.find(
+      (m: { message?: string; function?: string }) =>
+        m.message === 'Executed services function' && m.function === 'secretEcho'
+    )
+    assert.ok(executed, 'expected Executed services function for secretEcho')
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(executed, 'result'),
+      'expected result on Executed log when omitData is off'
+    )
+  }
+)
 
 Then('the captured logs show nested wrap execution', async function () {
   const hasWrapArgPhase = (

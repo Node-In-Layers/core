@@ -12,7 +12,7 @@ const defaultGetFunctionWrapLogLevel = (layerName: string): LogLevelNames => {
     case 'entries':
       return LogLevelNames.info
     case 'services':
-      return LogLevelNames.trace
+      return LogLevelNames.debug
     default:
       return LogLevelNames.debug
   }

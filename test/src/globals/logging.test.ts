@@ -558,6 +558,54 @@ describe('/src/globals/logging.ts', () => {
               assert.notProperty(executed, 'result')
             })
 
+            it('should omit args from wrap log when logging.overrides.omitData is true (services)', () => {
+              const { context, logger, mockLogMethod } = _getMockLogger()
+              const wrappedFunc = logger
+                .getLogger(context)
+                .getAppLogger('myApp')
+                .getLayerLogger('services')
+                ._logWrapSync('myFunction', (log, args: object) => {
+                  return { out: 1 }
+                })
+
+              const cross = crossLayerPropsWithLoggingOverrides(
+                { omitData: true },
+                { logging: { ids: [{ hop: 'svc-a' }] } }
+              )
+              wrappedFunc({ secret: 'payload' }, cross)
+
+              const executing = mockLogMethod
+                .getCalls()
+                .find(c => c.args[0].message === 'Executing services function')
+                ?.args[0]
+              assert.ok(executing, 'expected Executing wrap log')
+              assert.notProperty(executing, 'args')
+            })
+
+            it('should omit result from wrap log when logging.overrides.omitData is true (services)', () => {
+              const { context, logger, mockLogMethod } = _getMockLogger()
+              const wrappedFunc = logger
+                .getLogger(context)
+                .getAppLogger('myApp')
+                .getLayerLogger('services')
+                ._logWrapSync('myFunction', (log, args: object) => {
+                  return { sensitive: 'svc-result' }
+                })
+
+              const cross = crossLayerPropsWithLoggingOverrides(
+                { omitData: true },
+                { logging: { ids: [{ hop: 'svc-b' }] } }
+              )
+              wrappedFunc({ x: 1 }, cross)
+
+              const executed = mockLogMethod
+                .getCalls()
+                .find(c => c.args[0].message === 'Executed services function')
+                ?.args[0]
+              assert.ok(executed, 'expected Executed wrap log')
+              assert.notProperty(executed, 'result')
+            })
+
             it('should strip logging.overrides from crossLayerProps passed into the inner function', () => {
               const { context, logger } = _getMockLogger()
               let receivedCrossLayer: any
@@ -794,6 +842,54 @@ describe('/src/globals/logging.ts', () => {
               const executed = mockLogMethod
                 .getCalls()
                 .find(c => c.args[0].message === 'Executed features function')
+                ?.args[0]
+              assert.ok(executed, 'expected Executed wrap log')
+              assert.notProperty(executed, 'result')
+            })
+
+            it('should omit args from wrap log when logging.overrides.omitData is true (async, services)', async () => {
+              const { context, logger, mockLogMethod } = _getMockLogger()
+              const wrappedFunc = logger
+                .getLogger(context)
+                .getAppLogger('myApp')
+                .getLayerLogger('services')
+                ._logWrapAsync('myFunction', async (log, args: object) => {
+                  return { out: 1 }
+                })
+
+              const cross = crossLayerPropsWithLoggingOverrides(
+                { omitData: true },
+                { logging: { ids: [{ hop: 'async-svc-a' }] } }
+              )
+              await wrappedFunc({ secret: 'payload' }, cross)
+
+              const executing = mockLogMethod
+                .getCalls()
+                .find(c => c.args[0].message === 'Executing services function')
+                ?.args[0]
+              assert.ok(executing, 'expected Executing wrap log')
+              assert.notProperty(executing, 'args')
+            })
+
+            it('should omit result from wrap log when logging.overrides.omitData is true (async, services)', async () => {
+              const { context, logger, mockLogMethod } = _getMockLogger()
+              const wrappedFunc = logger
+                .getLogger(context)
+                .getAppLogger('myApp')
+                .getLayerLogger('services')
+                ._logWrapAsync('myFunction', async (log, args: object) => {
+                  return { sensitive: 'async-svc-result' }
+                })
+
+              const cross = crossLayerPropsWithLoggingOverrides(
+                { omitData: true },
+                { logging: { ids: [{ hop: 'async-svc-b' }] } }
+              )
+              await wrappedFunc({ x: 1 }, cross)
+
+              const executed = mockLogMethod
+                .getCalls()
+                .find(c => c.args[0].message === 'Executed services function')
                 ?.args[0]
               assert.ok(executed, 'expected Executed wrap log')
               assert.notProperty(executed, 'result')
