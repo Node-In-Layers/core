@@ -7,7 +7,7 @@ export default async () => {
     systemName: '@node-in-layers/core/knowledge-mcp',
     [CoreNamespace.root]: {
       // @ts-ignore
-      apps: await Promise.all([
+      domains: await Promise.all([
         import(`@node-in-layers/mcp-server/index.js`),
         import('./mcp/index.js'),
         import('./knowledge/index.js'),
