@@ -6,7 +6,12 @@ import { combineCrossLayerProps } from '../libs.js'
 
 const MAX_LOG_CHARACTERS = 50000
 
-const defaultGetFunctionWrapLogLevel = (layerName: string): LogLevelNames => {
+/**
+ * Default wrap log level by layer name when config does not override.
+ */
+export const defaultGetFunctionWrapLogLevel = (
+  layerName: string
+): LogLevelNames => {
   switch (layerName) {
     case 'features':
     case 'entries':
@@ -20,14 +25,10 @@ const defaultGetFunctionWrapLogLevel = (layerName: string): LogLevelNames => {
 
 /**
  * Gets the cross layer props and combines it with information from the logger.
- * Does this in a "smart" way.
- *
- * The result of this can be dumped directly into applyData.
- *
- * @param {Logger} logger
- * @param {CrossLayerProps} crossLayerProps
+ * @param logger - Logger with current id stack
+ * @param crossLayerProps - Optional existing cross-layer props
  */
-const combineLoggingProps = (
+export const combineLoggingProps = (
   logger: Logger,
   crossLayerProps?: CrossLayerProps
 ) => {
@@ -45,7 +46,10 @@ const combineLoggingProps = (
   return omit(merged, 'overrides')
 }
 
-const isCrossLayerLoggingProps = (
+/**
+ * Type guard for cross-layer props that carry logging ids.
+ */
+export const isCrossLayerLoggingProps = (
   maybe?: CrossLayerProps
 ): maybe is CrossLayerProps => {
   return Boolean(get(maybe, 'logging.ids'))
@@ -53,24 +57,19 @@ const isCrossLayerLoggingProps = (
 
 const MAX_CAP_DEPTH = 18
 
-/** Minimum character budget when shrinking an oversized log object in one step */
 const CAP_SHRINK_BUDGET_MIN = 120
 
-/** Fraction of `maxSize` used as shrink budget when object truncation must recurse */
 const CAP_SHRINK_BUDGET_RATIO = 0.5
 
 /**
- * Shrinks JSON-like `data` so JSON.stringify(result) tends to stay under `maxSize`
- * characters. Recurses into plain object properties and array elements first so a
- * single nested giant array cannot bypass the cap. Does not sum-enforce across
- * unrelated keys to exactly maxSize after recursion; use `maxLogSizeInCharacters`
- * as a per subtree / whole-payload guideline. Primitives pass through.
- *
- * Small payloads: one successful `JSON.stringify` and length check; if it fits,
- * the value is returned as-is (no per-key recursion, no array walk).
+ * Shrinks JSON-like `data` so JSON.stringify(result) tends to stay under `maxSize` characters.
  */
 // eslint-disable-next-line consistent-return
-const capForLogging = (input, maxSize = MAX_LOG_CHARACTERS, depth = 0) => {
+export const capForLogging = (
+  input,
+  maxSize = MAX_LOG_CHARACTERS,
+  depth = 0
+) => {
   const stringifyLen = (value: unknown): number | null => {
     // eslint-disable-next-line functional/no-try-statements
     try {
@@ -206,37 +205,5 @@ const capForLogging = (input, maxSize = MAX_LOG_CHARACTERS, depth = 0) => {
     }
     return build({}, 0)
   }
-}
-
-const trimTrailingUndefineds = (arr: any[]): any[] =>
-  arr.length === 0 || arr[arr.length - 1] !== undefined
-    ? arr
-    : trimTrailingUndefineds(arr.slice(0, arr.length - 1))
-
-const extractCrossLayerProps = (
-  args: any[]
-): [any[], CrossLayerProps | undefined] => {
-  if (args.length === 0) {
-    return [[], undefined]
-  }
-
-  const trimmed = trimTrailingUndefineds(args)
-
-  if (trimmed.length < args.length) {
-    return [trimmed, undefined]
-  }
-
-  const lastArg = trimmed[trimmed.length - 1]
-  if (isCrossLayerLoggingProps(lastArg)) {
-    return [trimmed.slice(0, trimmed.length - 1), lastArg]
-  }
-  return [trimmed, undefined]
-}
-
-export {
-  defaultGetFunctionWrapLogLevel,
-  combineLoggingProps,
-  isCrossLayerLoggingProps,
-  capForLogging,
-  extractCrossLayerProps,
+  return '[MaxSize]'
 }

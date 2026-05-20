@@ -59,7 +59,7 @@ const validConfig1 = () => ({
   environment: 'unit-test',
   systemName: 'nil-core',
   [CoreNamespace.root]: {
-    apps: [
+    domains: [
       {
         name: 'test',
       },
@@ -76,9 +76,9 @@ const validConfig2 = () => ({
   environment: 'unit-test',
   systemName: 'nil-core',
   [CoreNamespace.root]: {
-    apps: [
+    domains: [
       {
-        name: 'fakeapp',
+        name: 'fakedomain',
         services: {
           create: () => ({}),
         },
@@ -87,7 +87,7 @@ const validConfig2 = () => ({
         },
       },
       {
-        name: 'fakeapp2',
+        name: 'fakedomain2',
         services: {
           create: () => ({}),
         },
@@ -105,9 +105,9 @@ const validConfig3 = () => ({
   environment: 'unit-test',
   systemName: 'nil-core',
   [CoreNamespace.root]: {
-    apps: [
+    domains: [
       {
-        name: 'fakeapp',
+        name: 'fakedomain',
         services: {
           create: () => ({}),
         },

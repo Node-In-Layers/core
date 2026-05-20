@@ -113,14 +113,20 @@ export const toOtelAttributes = (
 /** Span name for a layer function (used by framework when wrapping with OTel trace). */
 export const layerSpanName = (
   layerName: string,
+  domain: string,
   functionName: string
-): string => `${layerName}:${functionName}`
+): string => `${layerName}:${domain}:${functionName}`
 
 /** Metric attributes for a layer function (used by framework when recording duration/count). */
 export const layerMetricAttrs = (
   layerName: string,
+  domain: string,
   functionName: string
-): AttributesMap => ({ layer: layerName, function: functionName })
+): AttributesMap => ({
+  layer: layerName,
+  domain: domain,
+  function: functionName,
+})
 
 /**
  * Convert ids (e.g. from logger.getIds()) to OTel attributes.

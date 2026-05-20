@@ -4,10 +4,10 @@ import omit from 'lodash/omit.js'
 import merge from 'lodash/merge.js'
 import cloneDeep from 'lodash/cloneDeep.js'
 import { DataDescription, Model, ModelType } from 'functional-models'
-import { extractCrossLayerProps } from './globals/libs.js'
+import { extractCrossLayerProps } from './globals/internal-libs.js'
 import {
-  App,
-  AppLayer,
+  Domain,
+  DomainLayer,
   CommonContext,
   Config,
   CoreNamespace,
@@ -25,11 +25,12 @@ import {
   ServicesContext,
   ModelCrudsFunctions,
 } from './types.js'
+import { createCrossLayerProps } from './libs.js'
 import {
-  createCrossLayerProps,
   DoNothingFetcher,
+  getCoreDomains,
   getLayersUnavailable,
-} from './libs.js'
+} from './internal-libs.js'
 import { memoizeValueSync } from './utils.js'
 import { OtelServicesLayer } from './otel/types.js'
 import {
@@ -49,7 +50,7 @@ const CONTEXT_TO_SKIP = {
   cruds: true,
 }
 
-const name = CoreNamespace.layers
+export const name = CoreNamespace.layers
 
 const modelGetter = <
   TConfig extends Config = Config,
@@ -57,7 +58,7 @@ const modelGetter = <
   TModelInstanceOverrides extends object = object,
 >(
   context: CommonContext<TConfig>,
-  apps: readonly App[],
+  domains: readonly Domain[],
   modelProps: PartialModelProps
 ) => {
   const memoized = {}
@@ -69,14 +70,14 @@ const modelGetter = <
     namespace: string,
     modelName: string
   ) => {
-    const app = apps.find(a => a.name === namespace)
-    if (!app || !app.models) {
+    const domain = domains.find(d => d.name === namespace)
+    if (!domain || !domain.models) {
       throw new Error(
-        `An app with models does not exist for namespace ${namespace}`
+        `A domain with models does not exist for namespace ${namespace}`
       )
     }
 
-    const models = app.models
+    const models = domain.models
     const modelConstructor = models[modelName]
     if (!modelConstructor) {
       throw new Error(
@@ -107,7 +108,7 @@ const modelGetter = <
   return getModel
 }
 
-const services = {
+export const services = {
   create: (): LayerServices => {
     const getModelProps = <
       TConfig extends Config = Config,
@@ -121,7 +122,10 @@ const services = {
         TConfig,
         TModelOverrides,
         TModelInstanceOverrides
-      >(context, context.config[CoreNamespace.root].apps, { Model, fetcher })
+      >(context, getCoreDomains(context.config[CoreNamespace.root]), {
+        Model,
+        fetcher,
+      })
       return {
         context,
         Model,
@@ -133,11 +137,14 @@ const services = {
     }
 
     const loadLayer = (
-      app: App,
+      domain: Domain,
       layer: string,
       context: LayerContext
     ): MaybePromise<GenericLayer | undefined> => {
-      const constructor: AppLayer<any, any> | undefined = get(app, `${layer}`)
+      const constructor: DomainLayer<any, any> | undefined = get(
+        domain,
+        `${layer}`
+      )
       if (!constructor?.create) {
         return undefined
       }
@@ -145,7 +152,7 @@ const services = {
       const instance = constructor.create(context)
       if (!instance) {
         throw new Error(
-          `App ${app.name} did not return an instance layer ${layer}`
+          `Domain ${domain.name} did not return an instance layer ${layer}`
         )
       }
       return instance
@@ -165,7 +172,7 @@ const isPromise = <T>(t: any): t is Promise<T> => {
   return Boolean(t.then)
 }
 
-const features = {
+export const features = {
   create: (
     context: CommonContext &
       LayerServicesLayer & { services: OtelServicesLayer }
@@ -268,7 +275,7 @@ const features = {
     }
 
     const _getModelLoadedContext = (
-      app: App,
+      domain: Domain,
       currentLayer: string,
       layerContext: LayerContext
     ): LayerContext => {
@@ -276,7 +283,7 @@ const features = {
         layerContext,
         currentLayer
       )
-      if (app.models) {
+      if (domain.models) {
         // If this is services, we need to load models first if they exist
         if (currentLayer === 'services') {
           const mfNamespace =
@@ -298,7 +305,7 @@ const features = {
               `Namespace ${mfNamespace} does not have a services object with a getModelProps(context: ServicesContext) function`
             )
           }
-          const models: Record<string, ModelConstructor> = app.models
+          const models: Record<string, ModelConstructor> = domain.models
           // This function is added to the services context.
           const getModels = memoizeValueSync(() => {
             const defaultModelProps = defaultMf.getModelProps(
@@ -307,7 +314,7 @@ const features = {
             const modelsObj = Object.entries(models).reduce(
               (acc, [modelName, constructor]) => {
                 // Do we have a custom model props for this?
-                const custom = get(customMf, `${app.name}.${modelName}`)
+                const custom = get(customMf, `${domain.name}.${modelName}`)
                 const isCustomArray = Array.isArray(custom)
                 const customArgs = isCustomArray ? custom.slice(1) : []
                 const customModelProps = custom
@@ -341,7 +348,7 @@ const features = {
 
                 const getModel = modelGetter(
                   context,
-                  context.config['@node-in-layers/core'].apps,
+                  getCoreDomains(context.config[CoreNamespace.root]),
                   partialModelProps
                 )
 
@@ -367,7 +374,7 @@ const features = {
             ? Object.keys(models).reduce((acc, name) => {
                 const factory = _resolveCrudsFactory(
                   currentLayer,
-                  app.name,
+                  domain.name,
                   name
                 )
                 return merge(acc, {
@@ -385,7 +392,7 @@ const features = {
             serviceCruds
               ? {
                   services: {
-                    [app.name]: {
+                    [domain.name]: {
                       cruds: serviceCruds,
                     },
                   },
@@ -393,7 +400,7 @@ const features = {
               : {},
             {
               models: {
-                [app.name]: {
+                [domain.name]: {
                   getModels,
                 },
               },
@@ -407,12 +414,16 @@ const features = {
           const serviceWrappers: [string, ModelCrudsFunctions<any>][] =
             // @ts-ignore
             Object.entries(
-              get(layerContextWithGetters, `services.${app.name}.cruds`, {})
+              get(layerContextWithGetters, `services.${domain.name}.cruds`, {})
             )
           // @ts-ignore
           const featureWrappers = serviceWrappers.reduce(
             (acc, [name, cruds]) => {
-              const factory = _resolveCrudsFactory(currentLayer, app.name, name)
+              const factory = _resolveCrudsFactory(
+                currentLayer,
+                domain.name,
+                name
+              )
               return merge(acc, {
                 [name]: factory<any>(
                   () => cruds.getModel(),
@@ -428,7 +439,7 @@ const features = {
 
           return merge({}, layerContextWithGetters, {
             features: {
-              [app.name]: {
+              [domain.name]: {
                 cruds: featureWrappers,
               },
             },
@@ -439,19 +450,19 @@ const features = {
     }
 
     const _loadLayer = async (
-      app: App,
+      domain: Domain,
       currentLayer: string,
       commonContext: LayerContext,
       previousLayer: LayerRecord | undefined
     ): Promise<LayerRecord> => {
       const layerContext1 = _getModelLoadedContext(
-        app,
+        domain,
         currentLayer,
         _getLayerContext(commonContext, previousLayer)
       )
       const layerLogger = context.rootLogger
         .getLogger(layerContext1)
-        .getAppLogger(app.name)
+        .getDomainLogger(domain.name)
         .getLayerLogger(currentLayer)
       const layerContext = cloneDeep(
         // eslint-disable-next-line functional/immutable-data
@@ -471,24 +482,24 @@ const features = {
 
       if (
         !commonContext.config[CoreNamespace.root].noModelLogWrap &&
-        layerContext[currentLayer]?.[app.name]?.cruds
+        layerContext[currentLayer]?.[domain.name]?.cruds
       ) {
-        const domainLevelKey = app.name
-        const layerLevelKey = `${app.name}.${currentLayer}`
+        const domainLevelKey = domain.name
+        const layerLevelKey = `${domain.name}.${currentLayer}`
         if (
           !get(ignoreLayerFunctions, layerLevelKey) &&
           !get(ignoreLayerFunctions, domainLevelKey)
         ) {
-          const crudsContainer = layerContext[currentLayer][app.name].cruds
+          const crudsContainer = layerContext[currentLayer][domain.name].cruds
           Object.entries(crudsContainer).forEach(([modelName, crudsObj]) => {
-            const modelLevelKey = `${app.name}.${currentLayer}.${modelName}`
-            const globalModelLevelKey = `${app.name}.*.${modelName}`
+            const modelLevelKey = `${domain.name}.${currentLayer}.${modelName}`
+            const globalModelLevelKey = `${domain.name}.*.${modelName}`
             if (
               !get(ignoreLayerFunctions, modelLevelKey) &&
               !get(ignoreLayerFunctions, globalModelLevelKey)
             ) {
               Object.entries(crudsObj as object).forEach(([funcName, func]) => {
-                const functionLevelKey = `${app.name}.${currentLayer}.${modelName}.${funcName}`
+                const functionLevelKey = `${domain.name}.${currentLayer}.${modelName}.${funcName}`
                 if (
                   !get(ignoreLayerFunctions, functionLevelKey) &&
                   typeof func === 'function' &&
@@ -582,7 +593,7 @@ const features = {
       )
 
       const layer = context.services[CoreNamespace.layers].loadLayer(
-        app,
+        domain,
         currentLayer,
         // @ts-ignore
         //layerContext
@@ -596,7 +607,7 @@ const features = {
       }
 
       // Are we going to ignore any log wrapping for this domain's whole layer??
-      const layerLevelKey = `${app.name}.${currentLayer}`
+      const layerLevelKey = `${domain.name}.${currentLayer}`
       const shouldIgnore = get(ignoreLayerFunctions, layerLevelKey)
 
       const finalLayer = shouldIgnore
@@ -609,7 +620,7 @@ const features = {
             }
 
             // Are we going to ignore this function from wrapping
-            const functionLevelKey = `${app.name}.${currentLayer}.${propertyName}`
+            const functionLevelKey = `${domain.name}.${currentLayer}.${propertyName}`
             if (get(ignoreLayerFunctions, functionLevelKey)) {
               return merge(acc, { [propertyName]: func })
             }
@@ -636,7 +647,7 @@ const features = {
       return merge(
         {
           [currentLayer]: {
-            [app.name]: finalLayer,
+            [domain.name]: finalLayer,
           },
         },
         layerContext
@@ -644,7 +655,7 @@ const features = {
     }
 
     const _loadCompositeLayer = async (
-      app: App,
+      domain: Domain,
       currentLayer: readonly string[],
       commonContext: LayerContext,
       previousLayer: LayerRecord | undefined,
@@ -664,7 +675,7 @@ const features = {
         const layerLogger = context.rootLogger
           // @ts-ignore
           .getLogger(theContext1)
-          .getAppLogger(app.name)
+          .getDomainLogger(domain.name)
           .getLayerLogger(layer)
         // eslint-disable-next-line
         const theContext = Object.assign(theContext1, {
@@ -741,7 +752,7 @@ const features = {
         )
 
         const loadedLayer = context.services[CoreNamespace.layers].loadLayer(
-          app,
+          domain,
           layer,
           // @ts-ignore
           wrappedContext
@@ -755,7 +766,7 @@ const features = {
           : loadedLayer
 
         // Are we going to ignore any log wrapping for this domain's whole layer??
-        const layerLevelKey = `${app.name}.${layer}`
+        const layerLevelKey = `${domain.name}.${layer}`
         const shouldIgnore = get(ignoreLayerFunctions, layerLevelKey)
 
         const finalLayer = shouldIgnore
@@ -768,7 +779,7 @@ const features = {
                 return merge(acc, { [propertyName]: func })
               }
               // Are we going to ignore this function from wrapping
-              const functionLevelKey = `${app.name}.${layer}.${propertyName}`
+              const functionLevelKey = `${domain.name}.${layer}.${propertyName}`
               if (get(ignoreLayerFunctions, functionLevelKey)) {
                 return merge(acc, { [propertyName]: func })
               }
@@ -794,7 +805,7 @@ const features = {
         // We have to create a NEW context to be passed along each time. If we put acc as the first arg, all the other sub-layers will magically get things they can't have.
         const result = merge({}, previousSubLayers, {
           [layer]: {
-            [app.name]: finalLayer,
+            [domain.name]: finalLayer,
           },
         })
         return result
@@ -814,10 +825,10 @@ const features = {
       const startingContext = omit(context, coreLayersToIgnore) as CommonContext
 
       // @ts-ignore
-      return context.config[CoreNamespace.root].apps.reduce<
+      return getCoreDomains(context.config[CoreNamespace.root]).reduce<
         Promise<FeaturesContext>
       >(
-        async (existingLayersP, app): Promise<FeaturesContext> => {
+        async (existingLayersP, domain): Promise<FeaturesContext> => {
           const existingLayers = await existingLayersP
           type R = [LayerContext, LayerRecord]
           const result = await layersInOrder.reduce<Promise<R>>(
@@ -838,14 +849,14 @@ const features = {
               ) as LayerContext
               const layerInstance = await (Array.isArray(layer)
                 ? _loadCompositeLayer(
-                    app,
+                    domain,
                     layer as string[],
                     correctContext,
                     previousLayer,
                     antiLayers
                   )
                 : _loadLayer(
-                    app,
+                    domain,
                     layer as string,
                     correctContext,
                     previousLayer
@@ -883,5 +894,3 @@ const features = {
     }
   },
 }
-
-export { name, services, features }

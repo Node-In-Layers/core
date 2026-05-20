@@ -201,7 +201,7 @@ const CONFIGS = {
     systemName: 'nil-core-features',
     environment: 'cucumber-test',
     [CoreNamespace.root]: {
-      apps: [createDomain1()],
+      domains: [createDomain1()],
       layerOrder: ['services', 'features', 'entries'],
       logging: {
         logLevel: LogLevelNames.info,
@@ -220,7 +220,7 @@ const CONFIGS = {
     systemName: 'nil-core-wrap-demo',
     environment: 'cucumber-test',
     [CoreNamespace.root]: {
-      apps: [createDomainWrapDemo()],
+      domains: [createDomainWrapDemo()],
       layerOrder: ['services', 'features'],
       logging: {
         logLevel: LogLevelNames.trace,
@@ -241,7 +241,7 @@ const CONFIGS = {
     systemName: 'nil-core-omit-data-service',
     environment: 'cucumber-test',
     [CoreNamespace.root]: {
-      apps: [createDomainOmitDataServiceDemo()],
+      domains: [createDomainOmitDataServiceDemo()],
       layerOrder: ['services', 'features'],
       logging: {
         logLevel: LogLevelNames.trace,

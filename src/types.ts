@@ -24,7 +24,7 @@ import {
  * The CRUDS functions for a model
  * @interface
  */
-type ModelCrudsFunctions<
+export type ModelCrudsFunctions<
   TData extends DataDescription,
   TModelExtensions extends object = object,
   TModelInstanceExtensions extends object = object,
@@ -67,7 +67,7 @@ type ModelCrudsFunctions<
  * Core model services providing CRUDS factory functionality.
  * @interface
  */
-type ModelServices = Readonly<{
+export type ModelServices = Readonly<{
   /**
    * Creates service-level {@link ModelCrudsFunctions} for an ORM model.
    * @param model - The ORM model to build CRUDS functions for.
@@ -83,7 +83,7 @@ type ModelServices = Readonly<{
  * Creates a new model instance and persists it via the ORM.
  * Accepts either partial data (with ignored properties) or a fully serialized object.
  */
-type CreateFunction<TData extends DataDescription> = <
+export type CreateFunction<TData extends DataDescription> = <
   IgnoreProperties extends string = '',
 >(
   data: Omit<TData, IgnoreProperties> | ToObjectResult<TData>,
@@ -93,7 +93,7 @@ type CreateFunction<TData extends DataDescription> = <
 /**
  * Retrieves a model instance by its primary key. Returns `undefined` if not found.
  */
-type RetrieveFunction<TData extends DataDescription> = (
+export type RetrieveFunction<TData extends DataDescription> = (
   primaryKey: PrimaryKeyType,
   crossLayerProps?: CrossLayerProps
 ) => Promise<OrmModelInstance<TData> | undefined>
@@ -101,7 +101,7 @@ type RetrieveFunction<TData extends DataDescription> = (
 /**
  * Updates an existing model instance identified by its primary key and persists the changes.
  */
-type UpdateFunction<TData extends DataDescription> = (
+export type UpdateFunction<TData extends DataDescription> = (
   primaryKey: PrimaryKeyType,
   data: TData | ToObjectResult<TData>,
   crossLayerProps?: CrossLayerProps
@@ -110,7 +110,7 @@ type UpdateFunction<TData extends DataDescription> = (
 /**
  * Deletes a model instance by its primary key.
  */
-type DeleteFunction = (
+export type DeleteFunction = (
   primaryKey: PrimaryKeyType,
   crossLayerProps?: CrossLayerProps
 ) => Promise<void>
@@ -118,7 +118,7 @@ type DeleteFunction = (
 /**
  * Searches for model instances matching the given {@link OrmSearch} query.
  */
-type SearchFunction<TData extends DataDescription> = (
+export type SearchFunction<TData extends DataDescription> = (
   ormSearch: OrmSearch,
   crossLayerProps?: CrossLayerProps
 ) => Promise<OrmSearchResult<TData>>
@@ -126,7 +126,7 @@ type SearchFunction<TData extends DataDescription> = (
 /**
  * A function that bulk inserts
  */
-type BulkInsertFunction<TData extends DataDescription> = (
+export type BulkInsertFunction<TData extends DataDescription> = (
   data: readonly TData[],
   crossLayerProps?: CrossLayerProps
 ) => Promise<void>
@@ -134,7 +134,7 @@ type BulkInsertFunction<TData extends DataDescription> = (
 /**
  * A function that bulk deletes
  */
-type BulkDeleteFunction = (
+export type BulkDeleteFunction = (
   primaryKeys: readonly PrimaryKeyType[],
   crossLayerProps?: CrossLayerProps
 ) => Promise<void>
@@ -143,7 +143,7 @@ type BulkDeleteFunction = (
  * An object that provides overrides for default behavior.
  * @interface
  */
-type CrudsOverrides<TData extends DataDescription> = Partial<
+export type CrudsOverrides<TData extends DataDescription> = Partial<
   Omit<ModelCrudsFunctions<TData>, 'getModel'>
 >
 
@@ -151,28 +151,16 @@ type CrudsOverrides<TData extends DataDescription> = Partial<
  * Options for building CRUDS interfaces with a model
  * @interface
  */
-type CrudsOptions<TData extends DataDescription> = Readonly<{
+export type CrudsOptions<TData extends DataDescription> = Readonly<{
   /**
    * Override any individual function.
    */
   overrides?: CrudsOverrides<TData>
 }>
 
-export {
-  UpdateFunction,
-  DeleteFunction,
-  SearchFunction,
-  CreateFunction,
-  CrudsOptions,
-  RetrieveFunction,
-  ModelCrudsFunctions,
-  ModelServices,
-  CrudsOverrides,
-}
-
 /**
  * A constructor provided by a domain's model module for creating {@link ModelType} instances.
- * This is the type used for entries in {@link App.models}.
+ * This is the type used for entries in {@link Domain.models}.
  * @interface
  */
 export type ModelConstructor = Readonly<{
@@ -216,7 +204,7 @@ export type ModelCrudsFactoryOverride = Readonly<{
  * A domain within a system.
  * @interface
  */
-export type App = Readonly<{
+export type Domain = Readonly<{
   /**
    * The name of the domain
    */
@@ -228,11 +216,11 @@ export type App = Readonly<{
   /**
    * Optional: Services layer
    */
-  services?: AppLayer<Config, any>
+  services?: DomainLayer<Config, any>
   /**
    * Optional: Features layer
    */
-  features?: AppLayer<Config, any>
+  features?: DomainLayer<Config, any>
   /**
    * Optional: Globals layer
    */
@@ -242,6 +230,11 @@ export type App = Readonly<{
    */
   models?: Record<string, ModelConstructor>
 }>
+
+/**
+ * @deprecated Use {@link Domain} instead.
+ */
+export type App = Domain
 
 /* eslint-disable no-magic-numbers */
 /**
@@ -536,7 +529,7 @@ export type LayerLogger = Logger &
  * A logger scoped to a domain. Provides access to layer-level loggers for each layer within the domain.
  * @interface
  */
-export type AppLogger = Logger &
+export type DomainLogger = Logger &
   Readonly<{
     /**
      * Creates a {@link LayerLogger} scoped to a specific layer within the domain.
@@ -549,7 +542,12 @@ export type AppLogger = Logger &
     ) => LayerLogger
   }>
 
-type GetAppLogger = (domainName: string) => AppLogger
+/**
+ * @deprecated Use {@link DomainLogger} instead.
+ */
+export type AppLogger = DomainLogger
+
+type GetDomainLogger = (domainName: string) => DomainLogger
 
 /**
  * Standard names for common layers within a domain.
@@ -659,17 +657,23 @@ export type Logger = Readonly<{
 }>
 
 /**
- * A top-level logger that can vend domain-scoped {@link AppLogger} instances.
+ * A top-level logger that can vend domain-scoped {@link DomainLogger} instances.
  * This is the logger returned by {@link RootLogger.getLogger}.
  * @interface
  */
 export type HighLevelLogger = Logger &
   Readonly<{
     /**
-     * Creates an {@link AppLogger} scoped to a specific domain.
+     * Creates a {@link DomainLogger} scoped to a specific domain.
      * @param domainName - The name of the domain.
      */
-    getAppLogger: GetAppLogger
+    getDomainLogger: GetDomainLogger
+    /**
+     * Creates a {@link DomainLogger} scoped to a specific domain.
+     * @param domainName - The name of the domain.
+     * @deprecated Use {@link HighLevelLogger.getDomainLogger} instead.
+     */
+    getAppLogger: GetDomainLogger
   }>
 
 /**
@@ -855,7 +859,7 @@ export type LayerServices = Readonly<{
    * @param existingLayers
    */
   loadLayer: (
-    domain: App,
+    domain: Domain,
     layer: string,
     existingLayers: LayerContext
   ) => MaybePromise<GenericLayer | undefined>
@@ -917,7 +921,7 @@ export type OtelSignalConfig = Readonly<{
  * OpenTelemetry configuration. When absent, setupOtel() is a no-op. Enable per signal via trace/logs/metrics .enabled.
  */
 export type OtelConfig = Readonly<{
-  /** Service name sent to OTel (e.g. systemName or app name). */
+  /** Service name sent to OTel (e.g. systemName or domain name). */
   serviceName?: string
   /** Version for the OTel resource (optional). */
   version?: string
@@ -1021,7 +1025,12 @@ export type CoreConfig = Readonly<{
    * Already loaded domains.
    * Most often take the form of doing require/imports directly in the config.
    */
-  apps: readonly App[]
+  domains?: readonly Domain[]
+  /**
+   * Already loaded domains.
+   * @deprecated Use {@link CoreConfig.domains} instead.
+   */
+  apps?: readonly Domain[]
   /**
    * Optional: The namespace to the domain.services that has a "getModelProps()" function used for loading models
    */
@@ -1091,10 +1100,10 @@ export type Config = Readonly<{
 }>
 
 /**
- * A generic layer within an domain
+ * A generic layer within a domain
  * @interface
  */
-export type AppLayer<
+export type DomainLayer<
   TConfig extends Config = Config,
   TContext extends object = object,
   TLayer extends object = object,
@@ -1105,6 +1114,15 @@ export type AppLayer<
    */
   create: (context: LayerContext<TConfig, TContext>) => MaybePromise<TLayer>
 }>
+
+/**
+ * @deprecated Use {@link DomainLayer} instead.
+ */
+export type AppLayer<
+  TConfig extends Config = Config,
+  TContext extends object = object,
+  TLayer extends object = object,
+> = DomainLayer<TConfig, TContext, TLayer>
 
 /**
  * The base level context that everything recieves.
@@ -1196,23 +1214,6 @@ export type ServicesContext<
   } & TContext
 >
 
-/**
- * A factory for creating the service.
- * @interface
- */
-export type ServicesLayerFactory<
-  TConfig extends Config = Config,
-  TServices extends object = object,
-  TContext extends object = object,
-  TLayer extends object = object,
-> = Readonly<{
-  /**
-   * Creates the services layer
-   * @param context
-   */
-  create: (context: ServicesContext<TConfig, TServices, TContext>) => TLayer
-}>
-
 type GlobalsLayer<
   TConfig extends Config = Config,
   TGlobals extends object = object,
@@ -1264,18 +1265,6 @@ export type FeaturesContext<
     }
   } & TGlobals
 >
-
-export type FeaturesLayerFactory<
-  TConfig extends Config = Config,
-  TContext extends object = object,
-  TServices extends object = object,
-  TFeatures extends object = object,
-  TLayer extends object = object,
-> = Readonly<{
-  create: (
-    context: FeaturesContext<TConfig, TServices, TFeatures, TContext>
-  ) => TLayer
-}>
 
 /**
  * Describes a complete loaded system, including config, constants, services, and features.
@@ -1399,22 +1388,6 @@ export type AnnotatedFunctionProps<
    */
   returns?: ZodType<TOutput extends void ? never : TOutput>
 }
-
-/**
- * A services context, that exposes CRUDS models services.
- */
-export type ModelCrudsServicesContext<
-  TModels extends Record<string, ModelCrudsFunctions<any>>,
-  TConfig extends Config = Config,
-  TServices extends object = object,
-  TContext extends object = object,
-> = ServicesContext<
-  TConfig,
-  TServices & {
-    cruds: TModels
-  },
-  TContext
->
 
 /**
  * Zod Schema for CrossLayerProps

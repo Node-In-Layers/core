@@ -61,7 +61,7 @@ describe('/src/globals/index.ts', () => {
       const common = {
         config: {
           '@node-in-layers/core': {
-            apps: [{ name: 'app1', globals: { create: () => ({ g: 1 }) } }],
+            domains: [{ name: 'app1', globals: { create: () => ({ g: 1 }) } }],
           },
         },
         rootLogger: s.getRootLogger(),
@@ -106,7 +106,7 @@ describe('/src/globals/index.ts', () => {
           environment: 'unit-test',
           systemName: 'nil-core',
           '@node-in-layers/core': {
-            apps: [{ name: 'app1' }],
+            domains: [{ name: 'app1' }],
             layerOrder: [],
             logging: {
               logFormat: LogFormat.full,

@@ -443,13 +443,19 @@ describe('/src/globals/logging.ts', () => {
         stderrStub.restore()
       })
 
-      describe('#getAppLogger()', () => {
-        it('should set app name in logger', () => {
+      describe('#getDomainLogger()', () => {
+        it('should set domain name in logger', () => {
           const { context, logger, mockLogMethod } = _getMockLogger()
-          const appLogger = logger.getLogger(context).getAppLogger('myApp')
+          const appLogger = logger.getLogger(context).getDomainLogger('myApp')
           appLogger.info('Test')
           assert.equal(mockLogMethod.firstCall.args[0].logger, 'myApp')
-          assert.equal(mockLogMethod.firstCall.args[0].app, 'myApp')
+          assert.equal(mockLogMethod.firstCall.args[0].domain, 'myApp')
+        })
+
+        it('deprecated getAppLogger behaves like getDomainLogger', () => {
+          const { context, logger, mockLogMethod } = _getMockLogger()
+          logger.getLogger(context).getAppLogger('myApp').info('Test')
+          assert.equal(mockLogMethod.firstCall.args[0].domain, 'myApp')
         })
 
         describe('#getLayerLogger()', () => {
@@ -457,7 +463,7 @@ describe('/src/globals/logging.ts', () => {
             const { context, logger, mockLogMethod } = _getMockLogger()
             const layerLogger = logger
               .getLogger(context)
-              .getAppLogger('myApp')
+              .getDomainLogger('myApp')
               .getLayerLogger('services')
             layerLogger.info('Test')
             assert.equal(
@@ -471,7 +477,7 @@ describe('/src/globals/logging.ts', () => {
             const { context, logger, mockLogMethod } = _getMockLogger()
             const layerLogger = logger
               .getLogger(context)
-              .getAppLogger('myApp')
+              .getDomainLogger('myApp')
               .getLayerLogger('services', {
                 logging: { ids: [{ custom: 'id' }] },
               })
@@ -488,7 +494,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync(
                   'myFunction',
@@ -511,7 +517,7 @@ describe('/src/globals/logging.ts', () => {
               let receivedCrossLayer: any
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync(
                   'myFunction',
@@ -538,7 +544,7 @@ describe('/src/globals/logging.ts', () => {
               let receivedCrossLayer: any
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync(
                   'myFunction',
@@ -556,7 +562,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync('myFunction', (log, args: object) => {
                   return { out: 1 }
@@ -580,7 +586,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync('myFunction', (log, args: object) => {
                   return { sensitive: 'result' }
@@ -604,7 +610,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 ._logWrapSync('myFunction', (log, args: object) => {
                   return { out: 1 }
@@ -628,7 +634,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 ._logWrapSync('myFunction', (log, args: object) => {
                   return { sensitive: 'svc-result' }
@@ -653,7 +659,7 @@ describe('/src/globals/logging.ts', () => {
               let receivedCrossLayer: any
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync(
                   'myFunction',
@@ -680,7 +686,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync('myFunction', (log, args: object) => {
                   log.debug('My middle message', {
@@ -701,7 +707,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapSync('myFunction', (log, args: object) => {
                   throw new Error('Sync failure')
@@ -775,7 +781,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync(
                   'myFunction',
@@ -798,7 +804,7 @@ describe('/src/globals/logging.ts', () => {
               let receivedCrossLayer: any
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync(
                   'myFunction',
@@ -826,7 +832,7 @@ describe('/src/globals/logging.ts', () => {
               let receivedCrossLayer: any
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync(
                   'myFunction',
@@ -845,7 +851,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync('myFunction', async (log, args: object) => {
                   return { out: 1 }
@@ -869,7 +875,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync('myFunction', async (log, args: object) => {
                   return { sensitive: 'async-result' }
@@ -893,7 +899,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 ._logWrapAsync('myFunction', async (log, args: object) => {
                   return { out: 1 }
@@ -917,7 +923,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 ._logWrapAsync('myFunction', async (log, args: object) => {
                   return { sensitive: 'async-svc-result' }
@@ -942,7 +948,7 @@ describe('/src/globals/logging.ts', () => {
               let receivedCrossLayer: any
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync(
                   'myFunction',
@@ -969,7 +975,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync('myFunction', async (log, args: object) => {
                   log.debug('My middle message', {
@@ -991,7 +997,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const wrappedFunc = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('features')
                 ._logWrapAsync('myFunction', async (log, args: object) => {
                   throw new Error('Async failure')
@@ -1065,7 +1071,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const log = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 .getFunctionLogger('myFunction')
               log.info('test')
@@ -1078,7 +1084,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const log = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 .getFunctionLogger('myFunction')
               log.info('test')
@@ -1092,7 +1098,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const log = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 .getFunctionLogger('myFunction')
               log.info('test')
@@ -1105,7 +1111,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const log = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
                 .getFunctionLogger('myFunction', {
                   logging: {
@@ -1125,7 +1131,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger } = _getMockLogger()
               const log = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
               assert.throws(
                 () =>
@@ -1139,7 +1145,7 @@ describe('/src/globals/logging.ts', () => {
               const { context, logger } = _getMockLogger()
               const log = logger
                 .getLogger(context)
-                .getAppLogger('myApp')
+                .getDomainLogger('myApp')
                 .getLayerLogger('services')
               const idLog = log.getIdLogger('name', { id: 'key' })
               assert.isOk(idLog.getIds().find(x => 'id' in x))

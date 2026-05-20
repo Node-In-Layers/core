@@ -4,20 +4,23 @@ import asPromised from 'chai-as-promised'
 import { describe, it } from 'mocha'
 import z from 'zod'
 import {
-  getLogLevelName,
-  validateConfig,
-  getLayersUnavailable,
   combineCrossLayerProps,
   annotatedFunction,
   errorObjectSchema,
   createErrorObject,
   isErrorObject,
+  annotationFunctionProps,
+} from '../../src/libs.js'
+import {
+  getCoreDomains,
+  getLogLevelName,
+  validateConfig,
+  getLayersUnavailable,
   getNamespace,
   DoNothingFetcher,
-  annotationFunctionProps,
   getLogLevelNumber,
   isConfig,
-} from '../../src/libs.js'
+} from '../../src/internal-libs.js'
 import {
   CoreNamespace,
   CrossLayerProps,
@@ -190,13 +193,13 @@ describe('/src/libs.ts', () => {
     })
   })
   describe('#validateConfig()', () => {
-    it('should throw an exception when an app doesnt have a name', () => {
+    it('should throw an exception when a domain does not have a name', () => {
       assert.throws(() => {
         validateConfig({
           systemName: 'nil-core',
           environment: 'unit-test',
           [CoreNamespace.root]: {
-            apps: [
+            domains: [
               {
                 name: 'testme',
               },
@@ -209,7 +212,7 @@ describe('/src/libs.ts', () => {
             },
           },
         })
-      }, 'A configured app does not have a name')
+      }, 'A configured domain does not have a name')
     })
     it('should throw an exception when logLevel is a number', () => {
       assert.throws(() => {
@@ -217,7 +220,7 @@ describe('/src/libs.ts', () => {
           systemName: 'nil-core',
           environment: 'unit-test',
           [CoreNamespace.root]: {
-            apps: [
+            domains: [
               {
                 name: 'testme',
               },
@@ -235,7 +238,7 @@ describe('/src/libs.ts', () => {
           systemName: 'nil-core',
           environment: 'unit-test',
           [CoreNamespace.root]: {
-            apps: [
+            domains: [
               {
                 name: 'testme',
               },
@@ -256,7 +259,7 @@ describe('/src/libs.ts', () => {
           environment: 'unit-test',
           // @ts-ignore
           [CoreNamespace.root]: {
-            apps: [
+            domains: [
               {
                 name: 'testme',
               },
@@ -269,7 +272,7 @@ describe('/src/libs.ts', () => {
         })
       })
     })
-    it('should throw an exception when apps is missing', () => {
+    it('should throw an exception when domains is missing', () => {
       assert.throws(() => {
         validateConfig({
           systemName: 'nil-core',
@@ -284,6 +287,47 @@ describe('/src/libs.ts', () => {
           },
         })
       })
+    })
+    it('should accept deprecated apps when domains is absent', () => {
+      assert.doesNotThrow(() => {
+        validateConfig({
+          systemName: 'nil-core',
+          environment: 'unit-test',
+          [CoreNamespace.root]: {
+            apps: [{ name: 'legacy' }],
+            layerOrder: ['services', 'features'],
+            logging: {
+              logFormat: LogFormat.full,
+              logLevel: LogLevelNames.silent,
+            },
+          },
+        })
+      })
+    })
+    it('getCoreDomains prefers domains over deprecated apps', () => {
+      const core = {
+        domains: [{ name: 'from-domains' }],
+        apps: [{ name: 'from-apps' }],
+        layerOrder: ['services'],
+        logging: {
+          logFormat: LogFormat.full,
+          logLevel: LogLevelNames.silent,
+        },
+      }
+      const actual = getCoreDomains(core)
+      assert.equal(actual[0].name, 'from-domains')
+    })
+    it('getCoreDomains reads deprecated apps when domains is absent', () => {
+      const core = {
+        apps: [{ name: 'from-apps' }],
+        layerOrder: ['services'],
+        logging: {
+          logFormat: LogFormat.full,
+          logLevel: LogLevelNames.silent,
+        },
+      }
+      const actual = getCoreDomains(core)
+      assert.equal(actual[0].name, 'from-apps')
     })
   })
   describe('#getLogLevelName()', () => {
@@ -533,7 +577,7 @@ describe('/src/libs.ts', () => {
       assert.isFalse(isErrorObject({ not: 'error' }))
     })
 
-    it('should return correct namespace with and without app', () => {
+    it('should return correct namespace with and without domain', () => {
       assert.equal(getNamespace('@pkg/name'), '@pkg/name')
       assert.equal(getNamespace('@pkg/name', 'myapp'), '@pkg/name/myapp')
     })

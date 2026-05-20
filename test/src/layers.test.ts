@@ -3,7 +3,8 @@ import get from 'lodash/get'
 import sinon from 'sinon'
 import { Model, PrimaryKeyUuidProperty } from 'functional-models'
 import { features, services as layersServices } from '../../src/layers'
-import { annotatedFunction, DoNothingFetcher } from '../../src/libs'
+import { annotatedFunction } from '../../src/libs.js'
+import { DoNothingFetcher } from '../../src/internal-libs.js'
 import { createMockFs, validConfig2, validConfig3 } from '../mocks'
 import {
   compositeLogger,
@@ -15,7 +16,7 @@ import {
 import z from 'zod'
 
 const modelsConfig1 = () => {
-  const app1Models = {
+  const domain1Models = {
     Model1: {
       create: sinon.stub().callsFake(props => {
         return props.Model({
@@ -29,7 +30,7 @@ const modelsConfig1 = () => {
     },
   }
 
-  const app2Models = {
+  const domain2Models = {
     Model2: {
       create: sinon.stub().callsFake(props =>
         props.Model({
@@ -43,11 +44,11 @@ const modelsConfig1 = () => {
     },
   }
 
-  const app1Services = {
+  const domain1Services = {
     create: sinon.stub().returns({}),
   }
 
-  const app1Features = {
+  const domain1Features = {
     create: sinon.stub().returns({
       myFeature: annotatedFunction(
         {
@@ -68,11 +69,11 @@ const modelsConfig1 = () => {
     }),
   }
 
-  const app2Services = {
+  const domain2Services = {
     create: sinon.stub().returns({}),
   }
 
-  const app2Features = {
+  const domain2Features = {
     create: sinon.stub().callsFake(context => ({
       getFeature1: annotatedFunction(
         {
@@ -84,40 +85,40 @@ const modelsConfig1 = () => {
         },
         args => {
           return {
-            myOutput: Boolean(context.features.app1.myFeature.schema),
+            myOutput: Boolean(context.features.domain1.myFeature.schema),
           }
         }
       ),
     })),
   }
 
-  const app1 = {
-    name: 'app1',
-    models: app1Models,
+  const domain1 = {
+    name: 'domain1',
+    models: domain1Models,
     create: {
-      models: app1Models,
-      services: app1Services.create,
-      features: app1Features.create,
+      models: domain1Models,
+      services: domain1Services.create,
+      features: domain1Features.create,
     },
-    services: app1Services,
-    features: app1Features,
+    services: domain1Services,
+    features: domain1Features,
   }
-  const app2 = {
-    name: 'app2',
-    models: app2Models,
+  const domain2 = {
+    name: 'domain2',
+    models: domain2Models,
     create: {
-      models: app2Models,
-      services: app2Services.create,
-      features: app2Features.create,
+      models: domain2Models,
+      services: domain2Services.create,
+      features: domain2Features.create,
     },
-    features: app2Features,
-    services: app2Services,
+    features: domain2Features,
+    services: domain2Services,
   }
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features'],
       logging: {
         logFormat: LogFormat.full,
@@ -128,7 +129,7 @@ const modelsConfig1 = () => {
 }
 
 const modelsConfig2 = () => {
-  const app1Models = {
+  const domain1Models = {
     Model1: {
       create: sinon.stub().callsFake(props => {
         return props.Model({
@@ -142,7 +143,7 @@ const modelsConfig2 = () => {
     },
   }
 
-  const app2Models = {
+  const domain2Models = {
     Model2: {
       create: sinon.stub().callsFake(props =>
         props.Model({
@@ -156,43 +157,43 @@ const modelsConfig2 = () => {
     },
   }
 
-  const app1Services = {
+  const domain1Services = {
     create: sinon.stub().returns({}),
   }
 
-  const app2Services = {
+  const domain2Services = {
     create: sinon.stub().returns({}),
   }
 
-  const app2Features = {
+  const domain2Features = {
     create: sinon.stub().returns({}),
   }
 
-  const app1 = {
-    name: 'app1',
-    models: app1Models,
+  const domain1 = {
+    name: 'domain1',
+    models: domain1Models,
     create: {
-      models: app1Models,
-      services: app1Services.create,
+      models: domain1Models,
+      services: domain1Services.create,
     },
-    services: app1Services,
+    services: domain1Services,
   }
-  const app2 = {
-    name: 'app2',
-    models: app2Models,
+  const domain2 = {
+    name: 'domain2',
+    models: domain2Models,
     create: {
-      models: app2Models,
-      services: app2Services.create,
-      features: app2Features.create,
+      models: domain2Models,
+      services: domain2Services.create,
+      features: domain2Features.create,
     },
-    features: app2Features,
-    services: app2Services,
+    features: domain2Features,
+    services: domain2Services,
   }
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features'],
       modelCruds: true,
       logging: {
@@ -204,7 +205,7 @@ const modelsConfig2 = () => {
 }
 
 const modelsConfig3 = () => {
-  const app1Models = {
+  const domain1Models = {
     Model1: {
       create: sinon.stub().callsFake(props => {
         return props.Model({
@@ -218,7 +219,7 @@ const modelsConfig3 = () => {
     },
   }
 
-  const app2Models = {
+  const domain2Models = {
     Model2: {
       create: sinon.stub().callsFake(props =>
         props.Model({
@@ -232,41 +233,41 @@ const modelsConfig3 = () => {
     },
   }
 
-  const app3Services = {
+  const domain3Services = {
     create: sinon.stub().returns({}),
   }
-  const app3Features = {
+  const domain3Features = {
     create: sinon.stub().returns({}),
   }
 
-  const app1 = {
-    name: 'app1',
-    models: app1Models,
+  const domain1 = {
+    name: 'domain1',
+    models: domain1Models,
     create: {
-      models: app1Models,
+      models: domain1Models,
     },
   }
-  const app2 = {
-    name: 'app2',
-    models: app2Models,
+  const domain2 = {
+    name: 'domain2',
+    models: domain2Models,
     create: {
-      models: app2Models,
+      models: domain2Models,
     },
   }
-  const app3 = {
-    name: 'app3',
+  const domain3 = {
+    name: 'domain3',
     create: {
-      services: app3Services.create,
-      features: app3Features.create,
+      services: domain3Services.create,
+      features: domain3Features.create,
     },
-    features: app3Features,
-    services: app3Services,
+    features: domain3Features,
+    services: domain3Services,
   }
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2, app3],
+      domains: [domain1, domain2, domain3],
       layerOrder: ['services', 'features'],
       modelCruds: true,
       logging: {
@@ -282,12 +283,12 @@ const customFactoryConfig = (
   ignoreFunctions?: any,
   noModelLogWrap?: boolean
 ) => {
-  const app1Models = {
+  const domain1Models = {
     Model1: {
       create: sinon.stub().callsFake(props => {
         const m = props.Model({
           pluralName: 'Model1',
-          namespace: 'app1',
+          namespace: 'domain1',
           properties: { id: PrimaryKeyUuidProperty() },
         })
         const prototypeObj = {
@@ -306,7 +307,7 @@ const customFactoryConfig = (
       create: sinon.stub().callsFake(props => {
         const m = props.Model({
           pluralName: 'Model2',
-          namespace: 'app1',
+          namespace: 'domain1',
           properties: { id: PrimaryKeyUuidProperty() },
         })
         const prototypeObj = {
@@ -323,11 +324,11 @@ const customFactoryConfig = (
     },
   }
 
-  const app1 = {
-    name: 'app1',
-    models: app1Models,
+  const domain1 = {
+    name: 'domain1',
+    models: domain1Models,
     create: {
-      models: app1Models,
+      models: domain1Models,
       services: sinon.stub().returns({}),
       features: sinon.stub().returns({}),
     },
@@ -339,7 +340,7 @@ const customFactoryConfig = (
     environment: 'unit-test',
     systemName: 'nil-core',
     ['@node-in-layers/core']: {
-      apps: [app1],
+      domains: [domain1],
       layerOrder: ['services', 'features'],
       modelCruds: true,
       modelCrudsFactory: crudsFactory,
@@ -354,8 +355,8 @@ const customFactoryConfig = (
 }
 
 const customLayer1 = () => {
-  const app1 = {
-    name: 'app1',
+  const domain1 = {
+    name: 'domain1',
     services: {
       create: sinon.stub().callsFake(context => ({
         logIt: layerArgs => {
@@ -368,17 +369,17 @@ const customLayer1 = () => {
       create: sinon.stub().callsFake(context => ({
         myFeature: crossLayer => {
           // TODO: FIXME add cross layer
-          //return context.services.app1.logIt(crossLayer)
-          return context.services.app1.logIt(crossLayer)
+          //return context.services.domain1.logIt(crossLayer)
+          return context.services.domain1.logIt(crossLayer)
         },
       })),
     },
     customLayer: {
-      create: sinon.stub().returns({ app1: 'custom' }),
+      create: sinon.stub().returns({ domain1: 'custom' }),
     },
   }
-  const app2 = {
-    name: 'app2',
+  const domain2 = {
+    name: 'domain2',
     customLayer: {
       create: sinon.stub().returns({}),
     },
@@ -387,7 +388,7 @@ const customLayer1 = () => {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features', ['entries', 'customLayer']],
       logging: {
         logFormat: LogFormat.full,
@@ -398,8 +399,8 @@ const customLayer1 = () => {
 }
 
 const customLayer2 = () => {
-  const app1 = {
-    name: 'app1',
+  const domain1 = {
+    name: 'domain1',
     services: {
       create: sinon.stub().returns({}),
     },
@@ -410,11 +411,11 @@ const customLayer2 = () => {
       create: sinon.stub().returns({}),
     },
     customLayer: {
-      create: sinon.stub().returns({ app1: 'custom' }),
+      create: sinon.stub().returns({ domain1: 'custom' }),
     },
   }
-  const app2 = {
-    name: 'app2',
+  const domain2 = {
+    name: 'domain2',
     entries: {
       create: sinon.stub().returns({}),
     },
@@ -426,7 +427,7 @@ const customLayer2 = () => {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features', ['entries', 'customLayer']],
       logging: {
         logFormat: LogFormat.full,
@@ -450,7 +451,7 @@ const customModelsConfig1 = () => {
     Model: CustomModelFactory2,
     fetcher: DoNothingFetcher,
   })
-  const app3Services = {
+  const domain3Services = {
     create: sinon.stub().returns({
       getModelProps,
     }),
@@ -463,24 +464,24 @@ const customModelsConfig1 = () => {
       }),
     }),
   }
-  const apps = [
+  const domainsList = [
     {
       name: 'customFactory',
       services: customFactoryServices,
       CustomModelFactory,
     },
     {
-      name: 'app3',
-      services: app3Services,
+      name: 'domain3',
+      services: domain3Services,
       CustomModelFactory2,
     },
     // @ts-ignore
-  ].concat(config[CoreNamespace.root].apps)
+  ].concat(config[CoreNamespace.root].domains ?? [])
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: apps,
+      domains: domainsList,
       layerOrder: ['services', 'features'],
       logging: {
         logFormat: LogFormat.full,
@@ -499,15 +500,15 @@ const compositeLayersConfig1 = () => {
   const create5 = sinon.stub().returns({})
   const create6 = sinon.stub().returns({})
 
-  const app1 = {
-    name: 'app1',
+  const domain1 = {
+    name: 'domain1',
     create: {
       services: create1,
     },
     services: sinon.stub().returns({ create: create1 }),
   }
-  const app2 = {
-    name: 'app2',
+  const domain2 = {
+    name: 'domain2',
     create: {
       services: create2,
       features: create3,
@@ -535,7 +536,7 @@ const compositeLayersConfig1 = () => {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', ['layerA', 'layerB', 'layerC'], 'features'],
       logging: {
         logFormat: LogFormat.full,
@@ -546,17 +547,17 @@ const compositeLayersConfig1 = () => {
 }
 
 const crossDomainServiceLookupConfig = () => {
-  const app1Services = {
+  const domain1Services = {
     create: sinon.stub().callsFake(context => ({
       myFunc: (_args, crossLayerProps) => {
         return context.services
-          .getServices('app2')
+          .getServices('domain2')
           ['configuredFunction']('World', crossLayerProps)
       },
     })),
   }
 
-  const app2Services = {
+  const domain2Services = {
     create: sinon.stub().returns({
       configuredFunction: (name, _crossLayerProps) => {
         return `Hello ${name}`
@@ -564,21 +565,21 @@ const crossDomainServiceLookupConfig = () => {
     }),
   }
 
-  const app1 = {
-    name: 'app1',
-    services: app1Services,
+  const domain1 = {
+    name: 'domain1',
+    services: domain1Services,
   }
 
-  const app2 = {
-    name: 'app2',
-    services: app2Services,
+  const domain2 = {
+    name: 'domain2',
+    services: domain2Services,
   }
 
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features'],
       logging: {
         logFormat: LogFormat.full,
@@ -589,26 +590,26 @@ const crossDomainServiceLookupConfig = () => {
 }
 
 const crossDomainVisibilityConfig = () => {
-  const app1Services = {
+  const domain1Services = {
     create: sinon.stub().callsFake(context => ({
       blowUpIfTryingToReadFeatures: () => {
         // @ts-ignore
-        return context.features.getFeatures('app2')
+        return context.features.getFeatures('domain2')
       },
     })),
   }
 
-  const app1Features = {
+  const domain1Features = {
     create: sinon.stub().callsFake(context => ({
       callHigherService: (_args, crossLayerProps) => {
         return context.services
-          .getServices('app2')
+          .getServices('domain2')
           ['configuredFunction']('World', crossLayerProps)
       },
     })),
   }
 
-  const app2Services = {
+  const domain2Services = {
     create: sinon.stub().returns({
       configuredFunction: (name, _crossLayerProps) => {
         return `Hello ${name}`
@@ -616,22 +617,22 @@ const crossDomainVisibilityConfig = () => {
     }),
   }
 
-  const app1 = {
-    name: 'app1',
-    services: app1Services,
-    features: app1Features,
+  const domain1 = {
+    name: 'domain1',
+    services: domain1Services,
+    features: domain1Features,
   }
 
-  const app2 = {
-    name: 'app2',
-    services: app2Services,
+  const domain2 = {
+    name: 'domain2',
+    services: domain2Services,
   }
 
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features'],
       logging: {
         logFormat: LogFormat.full,
@@ -642,11 +643,11 @@ const crossDomainVisibilityConfig = () => {
 }
 
 const higherThanFeaturesLayerCanGetFeaturesConfig = () => {
-  const app1Services = {
+  const domain1Services = {
     create: sinon.stub().returns({}),
   }
 
-  const app1Features = {
+  const domain1Features = {
     create: sinon.stub().returns({
       configuredFunction: (name, _crossLayerProps) => {
         return `Hello ${name}`
@@ -654,37 +655,37 @@ const higherThanFeaturesLayerCanGetFeaturesConfig = () => {
     }),
   }
 
-  const app2Services = {
+  const domain2Services = {
     create: sinon.stub().returns({}),
   }
 
-  const app2CustomLayer = {
+  const domain2CustomLayer = {
     create: sinon.stub().callsFake(context => ({
       callHigherFeature: (_args, crossLayerProps) => {
         return context.features
-          .getFeatures('app1')
+          .getFeatures('domain1')
           ['configuredFunction']('World', crossLayerProps)
       },
     })),
   }
 
-  const app1 = {
-    name: 'app1',
-    services: app1Services,
-    features: app1Features,
+  const domain1 = {
+    name: 'domain1',
+    services: domain1Services,
+    features: domain1Features,
   }
 
-  const app2 = {
-    name: 'app2',
-    services: app2Services,
-    customLayer: app2CustomLayer,
+  const domain2 = {
+    name: 'domain2',
+    services: domain2Services,
+    customLayer: domain2CustomLayer,
   }
 
   return {
     environment: 'unit-test',
     systemName: 'nil-core',
     [CoreNamespace.root]: {
-      apps: [app1, app2],
+      domains: [domain1, domain2],
       layerOrder: ['services', 'features', ['entries', 'customLayer']],
       logging: {
         logFormat: LogFormat.full,
@@ -707,7 +708,7 @@ const _setup = (config?: Config) => {
     ...logger,
     getFunctionLogger: sinon.stub().returns(functionLogger),
   }
-  const appLogger = {
+  const domainLogger = {
     ...logger,
     getLayerLogger: sinon.stub().returns(layerLogger),
   }
@@ -739,7 +740,7 @@ const crossLayerPropsPreservationConfig = () => {
   let capturedFromService: any = null
   let capturedFromContextService: any = null
 
-  const app1Services = {
+  const domain1Services = {
     create: sinon.stub().returns({
       captureProps: (_args: any, crossLayerProps: any) => {
         capturedFromService = crossLayerProps
@@ -748,25 +749,25 @@ const crossLayerPropsPreservationConfig = () => {
     }),
   }
 
-  const app2Services = {
+  const domain2Services = {
     create: sinon.stub().callsFake(context => ({
-      proxyToApp1: (_args: any, crossLayerProps: any) => {
+      proxyTodomain1: (_args: any, crossLayerProps: any) => {
         return context.services
-          .getServices('app1')
+          .getServices('domain1')
           ['captureProps']({ proxied: true }, crossLayerProps)
       },
     })),
   }
 
-  const app1 = { name: 'app1', services: app1Services }
-  const app2 = { name: 'app2', services: app2Services }
+  const domain1 = { name: 'domain1', services: domain1Services }
+  const domain2 = { name: 'domain2', services: domain2Services }
 
   return {
     config: {
       environment: 'unit-test',
       systemName: 'nil-core',
       [CoreNamespace.root]: {
-        apps: [app1, app2],
+        domains: [domain1, domain2],
         layerOrder: ['services', 'features'],
         logging: {
           logFormat: LogFormat.full,
@@ -782,19 +783,19 @@ const crossLayerPropsPreservationConfig = () => {
 describe('/src/layers.ts', () => {
   describe('#features.create()', () => {
     describe('#loadLayers()', () => {
-      it('should keep annotated functions intact even though they are wrapped', async () => {
+      it('should keep annotated functions intact even though they are wrdomained', async () => {
         const config = modelsConfig1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const context = await instance.loadLayers()
-        assert.isOk(context.features.app1.myFeature.schema)
+        assert.isOk(context.features.domain1.myFeature.schema)
       })
       it('should keep annotated functions intact through context', async () => {
         const config = modelsConfig1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const context = await instance.loadLayers()
-        const actual = await context.features.app2.getFeature1()
+        const actual = await context.features.domain2.getFeature1()
         const expected = {
           myOutput: true,
         }
@@ -805,63 +806,63 @@ describe('/src/layers.ts', () => {
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const context = await instance.loadLayers()
-        await context.features.app1.myFeature()
+        await context.features.domain1.myFeature()
       })
-      it('should produce layerLogger than when it logs, it has the appName followed by the layerName', async () => {
+      it('should produce layerLogger than when it logs, it has the domainName followed by the layerName', async () => {
         const config = customLayer1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actualContext =
-          inputs.config['@node-in-layers/core'].apps[0].services.create.getCall(
-            0
-          ).args[0]
+          inputs.config[
+            '@node-in-layers/core'
+          ].domains[0].services.create.getCall(0).args[0]
         actualContext.log.info('Test me')
         const actual = inputs._logging.mockLogMethod.getCall(0).args[0].logger
-        const expected = 'app1:services'
+        const expected = 'domain1:services'
         assert.deepEqual(actual, expected)
       })
-      it('should produce app1:services:logIt when a function logger is used in a service.', async () => {
+      it('should produce domain1:services:logIt when a function logger is used in a service.', async () => {
         const config = customLayer1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const fullContext = await instance.loadLayers()
-        fullContext.services.app1.logIt()
+        fullContext.services.domain1.logIt()
         const actual = inputs._logging.mockLogMethod.getCall(0).args[0].logger
-        const expected = 'app1:services:logIt'
+        const expected = 'domain1:services:logIt'
         assert.deepEqual(actual, expected)
       })
-      it('should pass app1 customLayer to app2 customLayer even if app2 doesnt have a features layer', async () => {
+      it('should pass domain1 customLayer to domain2 customLayer even if domain2 doesnt have a features layer', async () => {
         const config = customLayer1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[1].customLayer.create.getCall(0)
+          config[CoreNamespace.root].domains[1].customLayer.create.getCall(0)
             .args[0].customLayer
         const expected = {
-          app1: { app1: 'custom' },
+          domain1: { domain1: 'custom' },
         }
         assert.deepEqual(actual, expected)
       })
-      it('should NOT pass app1 customLayer to app2 entries', async () => {
+      it('should NOT pass domain1 customLayer to domain2 entries', async () => {
         const config = customLayer2()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[1].entries.create.getCall(0).args[0]
-            .customLayer
+          config[CoreNamespace.root].domains[1].entries.create.getCall(0)
+            .args[0].customLayer
         assert.isUndefined(actual)
       })
-      it('should pass app1 models to app1 services', async () => {
+      it('should pass domain1 models to domain1 services', async () => {
         const config = modelsConfig1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[0].create.services.getCall(0).args[0]
-            .models['app1'].getModels
+          config[CoreNamespace.root].domains[0].create.services.getCall(0)
+            .args[0].models['domain1'].getModels
         assert.isOk(actual)
       })
       it('should have model CRUDS in services when modelCruds is true', async () => {
@@ -869,25 +870,25 @@ describe('/src/layers.ts', () => {
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        const actual = Object.keys(layers.services.app1.cruds)
+        const actual = Object.keys(layers.services.domain1.cruds)
         const expected = ['Model1']
         assert.isOk(actual)
       })
-      it('should have model CRUDS in app2.features when modelCruds is true', async () => {
+      it('should have model CRUDS in domain2.features when modelCruds is true', async () => {
         const config = modelsConfig2()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        const actual = Object.keys(layers.features.app2.cruds)
+        const actual = Object.keys(layers.features.domain2.cruds)
         const expected = ['Model1']
         assert.isOk(actual)
       })
-      it('should NOT have model CRUDS in app1.features when modelCruds is true because there are no features', async () => {
+      it('should NOT have model CRUDS in domain1.features when modelCruds is true because there are no features', async () => {
         const config = modelsConfig2()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        const actual = get(layers, 'features.app1.cruds')
+        const actual = get(layers, 'features.domain1.cruds')
         assert.isUndefined(actual)
       })
       describe('Model Cruds Logging and Factories', () => {
@@ -899,7 +900,7 @@ describe('/src/layers.ts', () => {
           const layers = await instance.loadLayers()
 
           assert.isTrue(customFactory.called)
-          assert.equal(layers.services.app1.cruds.Model1.create(), 'custom')
+          assert.equal(layers.services.domain1.cruds.Model1.create(), 'custom')
         })
 
         it('should use a specific custom model factory for a specific model.', async () => {
@@ -908,7 +909,7 @@ describe('/src/layers.ts', () => {
             .returns({ create: () => 'custom-specific' })
           const factoryOverride = [
             {
-              domain: 'app1',
+              domain: 'domain1',
               model: 'Model1',
               factory: customFactory,
             },
@@ -920,7 +921,7 @@ describe('/src/layers.ts', () => {
 
           assert.isTrue(customFactory.called)
           assert.equal(
-            layers.services.app1.cruds.Model1.create(),
+            layers.services.domain1.cruds.Model1.create(),
             'custom-specific'
           )
         })
@@ -931,7 +932,7 @@ describe('/src/layers.ts', () => {
             .returns({ create: () => 'custom-specific' })
           const factoryOverride = [
             {
-              domain: 'app1',
+              domain: 'domain1',
               model: 'Model1',
               factory: customFactory,
             },
@@ -942,9 +943,9 @@ describe('/src/layers.ts', () => {
           const layers = await instance.loadLayers()
 
           // Model2 should not use the custom factory
-          assert.isFunction(layers.services.app1.cruds.Model2.create)
+          assert.isFunction(layers.services.domain1.cruds.Model2.create)
           assert.notEqual(
-            layers.services.app1.cruds.Model2.create,
+            layers.services.domain1.cruds.Model2.create,
             'custom-specific'
           )
         })
@@ -956,7 +957,7 @@ describe('/src/layers.ts', () => {
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          await layers.services.app1.cruds.Model1.retrieve('123')
+          await layers.services.domain1.cruds.Model1.retrieve('123')
 
           // The logger should not have been called with cruds:Model1:retrieve
           const logCalls = inputs._logging?.mockLogMethod?.getCalls() || []
@@ -967,12 +968,12 @@ describe('/src/layers.ts', () => {
         })
 
         it('should NOT log wrap if the domain is ignored', async () => {
-          const config = customFactoryConfig(undefined, { app1: true })
+          const config = customFactoryConfig(undefined, { domain1: true })
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          await layers.services.app1.cruds.Model1.retrieve('123')
+          await layers.services.domain1.cruds.Model1.retrieve('123')
 
           const logCalls = inputs._logging?.mockLogMethod?.getCalls() || []
           const crudsLogs = logCalls.filter(
@@ -983,13 +984,13 @@ describe('/src/layers.ts', () => {
 
         it('should NOT log wrap if the domain.layer is ignored', async () => {
           const config = customFactoryConfig(undefined, {
-            'app1.services': true,
+            'domain1.services': true,
           })
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          await layers.services.app1.cruds.Model1.retrieve('123')
+          await layers.services.domain1.cruds.Model1.retrieve('123')
 
           const logCalls = inputs._logging?.mockLogMethod?.getCalls() || []
           // Services shouldn't be logged because it's ignored
@@ -1001,33 +1002,33 @@ describe('/src/layers.ts', () => {
 
         it('should log wrap other domain layers if the domain.layer is not ignored', async () => {
           const config = customFactoryConfig(undefined, {
-            'app1.services': true,
+            'domain1.services': true,
           })
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
           // Features are NOT ignored! Let's call a feature CRUDS function.
-          await layers.features.app1.cruds.Model1.retrieve('123')
+          await layers.features.domain1.cruds.Model1.retrieve('123')
 
           const logCalls = inputs._logging?.mockLogMethod?.getCalls() || []
           const crudsLogs = logCalls.filter(
             call => call.args[0].function === 'cruds:Model1:retrieve'
           )
-          // It wrapped the features layer! Should have "running" and "completed" (2 logs)
+          // It wrdomained the features layer! Should have "running" and "completed" (2 logs)
           assert.equal(crudsLogs.length, 2)
         })
 
         it('should NOT log wrap if the domain.*.PluralName is ignored', async () => {
           const config = customFactoryConfig(undefined, {
-            'app1.*.Model1': true,
+            'domain1.*.Model1': true,
           })
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          await layers.services.app1.cruds.Model1.retrieve('123')
-          await layers.services.app1.cruds.Model2.retrieve('123')
+          await layers.services.domain1.cruds.Model1.retrieve('123')
+          await layers.services.domain1.cruds.Model2.retrieve('123')
 
           const logCalls = inputs._logging?.mockLogMethod?.getCalls() || []
 
@@ -1050,7 +1051,7 @@ describe('/src/layers.ts', () => {
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          await layers.features.app1.cruds.Model1.retrieve('123')
+          await layers.features.domain1.cruds.Model1.retrieve('123')
 
           const logCalls = inputs._logging?.mockLogMethod?.getCalls() || []
 
@@ -1078,9 +1079,9 @@ describe('/src/layers.ts', () => {
           const inputs = _setup(config)
           const instance = features.create(inputs)
           await instance.loadLayers()
-          const actual = config[CoreNamespace.root].apps[0].create.services
+          const actual = config[CoreNamespace.root].domains[0].create.services
             .getCall(0)
-            .args[0].models['app1'].getModels().Model1
+            .args[0].models['domain1'].getModels().Model1
           assert.isOk(actual)
         })
         it('should NOT create Model1 if getModels isnt called', async () => {
@@ -1089,7 +1090,7 @@ describe('/src/layers.ts', () => {
           const instance = features.create(inputs)
           await instance.loadLayers()
           assert.isFalse(
-            config[CoreNamespace.root].apps[0].models.Model1.create.called
+            config[CoreNamespace.root].domains[0].models.Model1.create.called
           )
         })
         it('should create Model1 when getModels() is called', async () => {
@@ -1097,11 +1098,11 @@ describe('/src/layers.ts', () => {
           const inputs = _setup(config)
           const instance = features.create(inputs)
           await instance.loadLayers()
-          config[CoreNamespace.root].apps[0].create.services
+          config[CoreNamespace.root].domains[0].create.services
             .getCall(0)
-            .args[0].models['app1'].getModels()
+            .args[0].models['domain1'].getModels()
           assert.isTrue(
-            config[CoreNamespace.root].apps[0].models.Model1.create.called
+            config[CoreNamespace.root].domains[0].models.Model1.create.called
           )
         })
         it('should use CustomModelFactory provided by the config', async () => {
@@ -1109,49 +1110,50 @@ describe('/src/layers.ts', () => {
           const inputs = _setup(config)
           const instance = features.create(inputs)
           await instance.loadLayers()
-          config[CoreNamespace.root].apps[3].services.create
+          config[CoreNamespace.root].domains[3].services.create
             .getCall(0)
-            .args[0].models['app2'].getModels()
+            .args[0].models['domain2'].getModels()
           assert.isTrue(
-            config[CoreNamespace.root].apps[0].CustomModelFactory.called
+            config[CoreNamespace.root].domains[0].CustomModelFactory.called
           )
         })
         describe('#getModel()', () => {
-          it('should pass app1 models via the getModel to app2 models', async () => {
+          it('should pass domain1 models via the getModel to domain2 models', async () => {
             const config = modelsConfig1()
             const inputs = _setup(config)
             const instance = features.create(inputs)
             await instance.loadLayers()
-            config[CoreNamespace.root].apps[1].create.services
+            config[CoreNamespace.root].domains[1].create.services
               .getCall(0)
-              .args[0].models['app2'].getModels()
+              .args[0].models['domain2'].getModels()
             const actual = config[
               CoreNamespace.root
-            ].apps[1].models.Model2.create
+            ].domains[1].models.Model2.create
               .getCall(0)
-              .args[0].getModel('app1', 'Model1')()
+              .args[0].getModel('domain1', 'Model1')()
               .getModelDefinition().pluralName
             const expected = 'Model1'
             assert.isOk(expected)
           })
         })
       })
-      it('should pass app1 models to app1 services', async () => {
+      it('should pass domain1 models to domain1 services', async () => {
         const config = modelsConfig1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[0].create.services.getCall(0).args[0]
-            .models['app1']
+          config[CoreNamespace.root].domains[0].create.services.getCall(0)
+            .args[0].models['domain1']
         assert.isOk(actual)
       })
-      it('should call layerB of app2', async () => {
+      it('should call layerB of domain2', async () => {
         const config = compositeLayersConfig1()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         await instance.loadLayers()
-        const actual = config[CoreNamespace.root].apps[1].create.layerB.called
+        const actual =
+          config[CoreNamespace.root].domains[1].create.layerB.called
         assert.isTrue(actual)
       })
       it('should show NOT show features when layer C is loaded', async () => {
@@ -1160,7 +1162,7 @@ describe('/src/layers.ts', () => {
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[1].create.layerC.getCall(0).args[0]
+          config[CoreNamespace.root].domains[1].create.layerC.getCall(0).args[0]
         assert.isUndefined(actual.features)
       })
       it('should show only layer A and Layer B when layer C is loaded', async () => {
@@ -1169,7 +1171,7 @@ describe('/src/layers.ts', () => {
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[1].create.layerC.getCall(0).args[0]
+          config[CoreNamespace.root].domains[1].create.layerC.getCall(0).args[0]
         assert.isOk(actual.layerA)
         assert.isOk(actual.layerB)
       })
@@ -1179,22 +1181,22 @@ describe('/src/layers.ts', () => {
         const instance = features.create(inputs)
         await instance.loadLayers()
         const actual =
-          config[CoreNamespace.root].apps[1].create.layerB.getCall(0).args[0]
+          config[CoreNamespace.root].domains[1].create.layerB.getCall(0).args[0]
         assert.isOk(actual.layerA)
         assert.isUndefined(actual.layerB)
       })
-      it('should load services for fakeapp', async () => {
+      it('should load services for fakedomain', async () => {
         const inputs = _setup()
         const instance = features.create(inputs)
         const actual = await instance.loadLayers()
-        assert.isOk(actual.services['fakeapp'])
+        assert.isOk(actual.services['fakedomain'])
       })
       it('should allow lower service domain to call higher service domain using getServices()', async () => {
         const config = crossDomainServiceLookupConfig()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        const actual = layers.services.app1.myFunc()
+        const actual = layers.services.domain1.myFunc()
         const expected = 'Hello World'
         assert.deepEqual(actual, expected)
       })
@@ -1203,7 +1205,7 @@ describe('/src/layers.ts', () => {
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        const actual = layers.features.app1.callHigherService()
+        const actual = layers.features.domain1.callHigherService()
         const expected = 'Hello World'
         assert.deepEqual(actual, expected)
       })
@@ -1212,44 +1214,46 @@ describe('/src/layers.ts', () => {
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        assert.throws(() => layers.services.app1.blowUpIfTryingToReadFeatures())
+        assert.throws(() =>
+          layers.services.domain1.blowUpIfTryingToReadFeatures()
+        )
       })
       it('should allow a higher-than-features layer to call getFeatures()', async () => {
         const config = higherThanFeaturesLayerCanGetFeaturesConfig()
         const inputs = _setup(config)
         const instance = features.create(inputs)
         const layers = await instance.loadLayers()
-        const actual = layers.customLayer.app2.callHigherFeature()
+        const actual = layers.customLayer.domain2.callHigherFeature()
         const expected = 'Hello World'
         assert.deepEqual(actual, expected)
       })
-      it('should load features for fakeapp', async () => {
+      it('should load features for fakedomain', async () => {
         const inputs = _setup()
         const instance = features.create(inputs)
         const actual = await instance.loadLayers()
-        assert.isOk(actual.features['fakeapp'])
+        assert.isOk(actual.features['fakedomain'])
       })
-      it('should NOT load features for fakeapp2', async () => {
+      it('should NOT load features for fakedomain2', async () => {
         const inputs = _setup()
         const instance = features.create(inputs)
         const actual = await instance.loadLayers()
-        assert.isUndefined(actual.features['fakeapp2'])
+        assert.isUndefined(actual.features['fakedomain2'])
       })
-      it('should throw an exception when there is an app that has a services object but create produced nothing', async () => {
+      it('should throw an exception when there is an domain that has a services object but create produced nothing', async () => {
         const inputs = _setup(validConfig3())
         const instance = features.create(inputs)
         const promise = instance.loadLayers()
         return assert.isRejected(promise)
       })
-      describe('cross-layer props preservation through layer wrapping', () => {
-        it('should pass extended cross-layer props through to a wrapped service function', async () => {
+      describe('cross-layer props preservation through layer wrdomaining', () => {
+        it('should pass extended cross-layer props through to a wrdomained service function', async () => {
           const { config, getCapturedFromService } =
             crossLayerPropsPreservationConfig()
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          layers.services.app1.captureProps(
+          layers.services.domain1.captureProps(
             { some: 'arg' },
             {
               logging: { ids: [{ requestId: '123' }] },
@@ -1262,26 +1266,26 @@ describe('/src/layers.ts', () => {
           })
         })
 
-        it('should inject logging ids when no cross-layer props are passed to a wrapped service function', async () => {
+        it('should inject logging ids when no cross-layer props are passed to a wrdomained service function', async () => {
           const { config, getCapturedFromService } =
             crossLayerPropsPreservationConfig()
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          layers.services.app1.captureProps({ some: 'arg' })
+          layers.services.domain1.captureProps({ some: 'arg' })
 
           assert.isArray(getCapturedFromService()?.logging?.ids)
         })
 
-        it('should pass extended cross-layer props through the context.services wrapper when one domain calls another', async () => {
+        it('should pass extended cross-layer props through the context.services wrdomainer when one domain calls another', async () => {
           const { config, getCapturedFromService } =
             crossLayerPropsPreservationConfig()
           const inputs = _setup(config)
           const instance = features.create(inputs)
           const layers = await instance.loadLayers()
 
-          layers.services.app2.proxyToApp1(
+          layers.services.domain2.proxyTodomain1(
             { some: 'arg' },
             {
               logging: { ids: [{ requestId: '456' }] },

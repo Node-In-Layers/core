@@ -184,6 +184,10 @@ export type RunWithTraceAndMetricsOptions = Readonly<{
    */
   layerName: string
   /**
+   * The name of the domain the function belongs to.
+   */
+  domain: string
+  /**
    * The name of the function being traced.
    */
   functionName: string

@@ -1,11 +1,11 @@
 import merge from 'lodash/merge.js'
 import { v4 } from 'uuid'
 import get from 'lodash/get.js'
-import { isConfig, validateConfig } from '../libs.js'
+import { getCoreDomains, isConfig, validateConfig } from '../internal-libs.js'
 import {
   Config,
   RootLogger,
-  App,
+  Domain,
   CommonContext,
   CoreNamespace,
   FeaturesContext,
@@ -13,7 +13,7 @@ import {
 import { memoizeValue } from '../utils.js'
 import { standardLogger } from './logging.js'
 
-const name = CoreNamespace.globals
+export const name = CoreNamespace.globals
 
 type GlobalsServicesProps = Readonly<{
   environment: string
@@ -31,7 +31,7 @@ type GlobalsServices<TConfig extends Config> = Readonly<{
   }
   getGlobals: (
     commonGlobals: CommonContext<TConfig>,
-    app: App
+    domain: Domain
   ) => Promise<Record<string, any>>
 }>
 
@@ -47,7 +47,7 @@ type GlobalServicesLayer = Readonly<{
   }
 }>
 
-const services = {
+export const services = {
   create: <TConfig extends Config>({
     environment,
     workingDirectory,
@@ -98,9 +98,12 @@ const services = {
       }
     }
 
-    const getGlobals = (commonGlobals: CommonContext<TConfig>, app: App) => {
-      if (app.globals) {
-        return app.globals.create(commonGlobals)
+    const getGlobals = (
+      commonGlobals: CommonContext<TConfig>,
+      domain: Domain
+    ) => {
+      if (domain.globals) {
+        return domain.globals.create(commonGlobals)
       }
       return Promise.resolve({})
     }
@@ -114,7 +117,7 @@ const services = {
   },
 }
 
-const features = {
+export const features = {
   create: <TConfig extends Config>(
     context: FeaturesContext<TConfig, GlobalServicesLayer>
   ): GlobalsFeatures<TConfig> => {
@@ -138,10 +141,12 @@ const features = {
         rootLogger: ourServices.getRootLogger(),
         constants: ourServices.getConstants(),
       }
-      const globals: TGlobals = await config[CoreNamespace.root].apps.reduce(
-        async (accP, app) => {
+      const globals: TGlobals = await getCoreDomains(
+        config[CoreNamespace.root]
+      ).reduce(
+        async (accP, domain) => {
           const acc = await accP
-          const dep = await ourServices.getGlobals(commonGlobals, app)
+          const dep = await ourServices.getGlobals(commonGlobals, domain)
           return merge(acc, dep)
         },
         Promise.resolve({} as TGlobals)
@@ -153,5 +158,3 @@ const features = {
     }
   },
 }
-
-export { services, features, name }

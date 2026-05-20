@@ -9,9 +9,9 @@ import { JsonAble } from 'functional-models'
 import {
   createCrossLayerProps,
   createErrorObject,
-  getLogLevelNumber,
   isErrorObject,
 } from '../libs.js'
+import { getLogLevelNumber } from '../internal-libs.js'
 import {
   CommonContext,
   Config,
@@ -28,13 +28,14 @@ import {
   RootLogger,
   CommonLayerName,
   CrossLayerProps,
-  AppLogger,
+  DomainLogger,
   LogWrapAsync,
   LogWrapSync,
   MaybePromise,
   LogInstanceOptions,
   FunctionLogWrapOptions,
   FunctionLogger,
+  XOR,
 } from '../types.js'
 import { memoizeValueSync } from '../utils.js'
 import { createOtelLogMethod } from '../otel/libs.js'
@@ -43,8 +44,8 @@ import {
   defaultGetFunctionWrapLogLevel,
   combineLoggingProps,
   capForLogging,
-  extractCrossLayerProps,
 } from './libs.js'
+import { extractCrossLayerProps } from './internal-libs.js'
 
 const MAX_LOGGING_ATTEMPTS = 5
 
@@ -75,6 +76,7 @@ const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
   context: CommonContext<TConfig>,
   input: Readonly<{
     layerName: CommonLayerName | string
+    domain: string
     functionName: string
     funcLogger: Logger
     logLevel: LogLevelNames
@@ -85,6 +87,7 @@ const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
 ): T | Promise<T> => {
   const {
     layerName,
+    domain,
     functionName,
     funcLogger,
     logLevel,
@@ -146,7 +149,7 @@ const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
     | undefined
   if (otel?.runWithTraceAndMetrics) {
     return otel.runWithTraceAndMetrics(
-      { layerName, functionName, getIds: () => funcLogger.getIds() },
+      { layerName, domain, functionName, getIds: () => funcLogger.getIds() },
       doWork
     )
   }
@@ -156,6 +159,7 @@ const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
 const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
   context: CommonContext<TConfig>,
   layerName: CommonLayerName | string,
+  domain: string,
   idBranchParent: Logger,
   scopeFunctionName: string,
   templateCrossLayer: CrossLayerProps | undefined,
@@ -194,6 +198,7 @@ const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
     const argsForExecuting = options?.args ?? []
     return runLayerFunctionWrapBlock(context, {
       layerName,
+      domain,
       functionName: scopeFunctionName,
       funcLogger,
       logLevel,
@@ -210,6 +215,7 @@ const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
     return buildExtendedFunctionLogger(
       context,
       layerName,
+      domain,
       templateCore,
       childName,
       clp,
@@ -249,7 +255,7 @@ const _combineIds = (id: readonly LogId[]) => {
  * A simple LogFunction that provides datetime: message
  * @param logMessage
  */
-const consoleLogSimple = (logMessage: LogMessage) => {
+export const consoleLogSimple = (logMessage: LogMessage) => {
   const splitted = (logMessage.logger || 'root').split(':')
   // eslint-disable-next-line functional/immutable-data
   const functionName = splitted.pop()
@@ -267,7 +273,7 @@ const consoleLogSimple = (logMessage: LogMessage) => {
  * A simple LogFunction that logs more data as a single string.
  * @param logMessage
  */
-const consoleLogFull = (logMessage: LogMessage) => {
+export const consoleLogFull = (logMessage: LogMessage) => {
   const level =
     logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   return logMessage.ids
@@ -286,7 +292,7 @@ const consoleLogFull = (logMessage: LogMessage) => {
  * A simple LogFunction that logs a message as a json object.
  * @param logMessage
  */
-const consoleLogJson = (logMessage: LogMessage) => {
+export const consoleLogJson = (logMessage: LogMessage) => {
   const level =
     logMessage.logLevel === LogLevelNames.trace ? 'debug' : logMessage.logLevel
   // @ts-ignore
@@ -330,7 +336,7 @@ const _shouldIgnore = (
  * tcpLoggingOptions must be set in the configuration file.
  * @param context
  */
-const logTcp = (context: CommonContext) => {
+export const logTcp = (context: CommonContext) => {
   const tcpOptions =
     context.config[CoreNamespace.root].logging.tcpLoggingOptions
   if (!tcpOptions) {
@@ -399,6 +405,7 @@ const _layerLogger = <TConfig extends Config = Config>(
   context: CommonContext<TConfig>,
   subLogger: Logger,
   layerName: CommonLayerName | string,
+  domain: string,
   crossLayerProps?: CrossLayerProps
 ): LayerLogger => {
   const theLogger1 = subLogger.getSubLogger(layerName).applyData({
@@ -421,6 +428,7 @@ const _layerLogger = <TConfig extends Config = Config>(
     return buildExtendedFunctionLogger(
       context,
       layerName,
+      domain,
       theLogger,
       functionName,
       crossLayerProps,
@@ -444,8 +452,9 @@ const _layerLogger = <TConfig extends Config = Config>(
   const logWrap = <
     T,
     A extends Array<any>,
-    TLogWrap extends LogWrapAsync<T, A> | LogWrapSync<T, A>,
+    TLogWrap extends XOR<LogWrapAsync<T, A>, LogWrapSync<T, A>>,
   >(
+    domain: string,
     functionName: string,
     func: TLogWrap,
     additionalData?: Record<string, any>
@@ -463,6 +472,7 @@ const _layerLogger = <TConfig extends Config = Config>(
       return runLayerFunctionWrapBlock(context, {
         layerName,
         functionName,
+        domain,
         funcLogger,
         logLevel,
         omitWrapPayload,
@@ -482,7 +492,15 @@ const _layerLogger = <TConfig extends Config = Config>(
   return merge({}, theLogger, {
     getInnerLogger,
     getFunctionLogger,
-    _logWrap: logWrap,
+    _logWrap: <
+      T,
+      A extends Array<any>,
+      TLogWrap extends XOR<LogWrapAsync<T, A>, LogWrapSync<T, A>>,
+    >(
+      functionName: string,
+      func: TLogWrap,
+      additionalData?: Record<string, any>
+    ) => logWrap<T, A, TLogWrap>(domain, functionName, func, additionalData),
     // eslint-disable-next-line functional/prefer-tacit
     _logWrapAsync: <T, A extends Array<any>>(
       functionName: string,
@@ -490,6 +508,7 @@ const _layerLogger = <TConfig extends Config = Config>(
       additionalData?: Record<string, any>
     ) => {
       return logWrap<T, A, LogWrapAsync<T, A>>(
+        domain,
         functionName,
         func,
         additionalData
@@ -502,6 +521,7 @@ const _layerLogger = <TConfig extends Config = Config>(
       additionalData?: Record<string, any>
     ) => {
       return logWrap<T, A, LogWrapSync<T, A>>(
+        domain,
         functionName,
         func,
         additionalData
@@ -510,13 +530,13 @@ const _layerLogger = <TConfig extends Config = Config>(
   })
 }
 
-const _appLogger = <TConfig extends Config = Config>(
+const _domainLogger = <TConfig extends Config = Config>(
   context: CommonContext<TConfig>,
   subLogger: Logger,
-  appName: string
-): AppLogger => {
-  const theLogger = subLogger.getSubLogger(appName).applyData({
-    app: appName,
+  domainName: string
+): DomainLogger => {
+  const theLogger = subLogger.getSubLogger(domainName).applyData({
+    domain: domainName,
   })
   return merge({}, theLogger, {
     getLayerLogger: (
@@ -527,6 +547,7 @@ const _appLogger = <TConfig extends Config = Config>(
         context,
         theLogger,
         layerName,
+        domainName,
         crossLayerProps
       )
     },
@@ -680,7 +701,7 @@ const _getIdsWithRuntime = (
 /**
  * The standard RootLogger for the core library.
  */
-const standardLogger = <
+export const standardLogger = <
   TConfig extends Config = Config,
 >(): RootLogger<TConfig> => {
   const getLogger = (
@@ -710,7 +731,7 @@ const standardLogger = <
  * because this provides everything, except the actual function that does the logging.
  * @param logMethods - A list of log methods.
  */
-const compositeLogger = <TConfig extends Config = Config>(
+export const compositeLogger = <TConfig extends Config = Config>(
   logMethods: readonly LogMethod<TConfig>[]
 ): RootLogger<TConfig> => {
   const getLogger = (
@@ -723,23 +744,15 @@ const compositeLogger = <TConfig extends Config = Config>(
       ids,
       ...(props?.data ? props.data : {}),
     })
+    const getDomainLogger = (domainName: string) =>
+      _domainLogger(context, subLogger, domainName)
     return merge(subLogger, {
-      getAppLogger: (appName: string) => {
-        return _appLogger(context, subLogger, appName)
-      },
+      getDomainLogger,
+      getAppLogger: getDomainLogger,
     })
   }
 
   return {
     getLogger,
   }
-}
-
-export {
-  standardLogger,
-  consoleLogSimple,
-  consoleLogJson,
-  consoleLogFull,
-  compositeLogger,
-  logTcp,
 }

@@ -275,9 +275,14 @@ export const create = (context: ServicesContext<Config>): OtelServices => {
     options: RunWithTraceAndMetricsOptions,
     fn: () => T | Promise<T>
   ): T | Promise<T> => {
-    const spanName = layerSpanName(options.layerName, options.functionName)
+    const spanName = layerSpanName(
+      options.layerName,
+      options.domain,
+      options.functionName
+    )
     const metricAttrs = layerMetricAttrs(
       options.layerName,
+      options.domain,
       options.functionName
     )
     const span = trace.startSpan(spanName, {

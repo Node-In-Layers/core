@@ -13,7 +13,7 @@ import { isPromise } from './utils.js'
  * 4. Loads all layers
  * @param args - The required arguments.
  */
-const loadSystem = async <TConfig extends Config = Config>(args: {
+export const loadSystem = async <TConfig extends Config = Config>(args: {
   environment: string
   config?: TConfig
 }) => {
@@ -52,5 +52,3 @@ const loadSystem = async <TConfig extends Config = Config>(args: {
   const layers = await layersFeatures.loadLayers()
   return omit(layers, [`services.${CoreNamespace.layers}`])
 }
-
-export { loadSystem }

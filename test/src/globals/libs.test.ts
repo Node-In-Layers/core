@@ -4,8 +4,8 @@ import {
   combineLoggingProps,
   isCrossLayerLoggingProps,
   capForLogging,
-  extractCrossLayerProps,
 } from '../../../src/globals/libs.js'
+import { extractCrossLayerProps } from '../../../src/globals/internal-libs.js'
 import {
   createCrossLayerProps,
   crossLayerPropsWithLoggingOverrides,

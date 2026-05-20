@@ -17,13 +17,41 @@ import get from 'lodash/get.js'
 import {
   CommonContext,
   Config,
+  CoreNamespace,
   CrossLayerProps,
   ForeignKeyPropertyGetter,
   CrudsOptions,
   ModelCrudsFunctions,
 } from '../types.js'
 import { memoizeValueSync } from '../utils.js'
-import { getPrimaryKeyDataType, getPrimaryKeyGenerator } from './libs.js'
+import { getPrimaryKeyDataType } from './libs.js'
+
+/**
+ * Builds the composite key used to look up model-specific configuration (e.g. primary key type).
+ * Format: `domain/PluralModelName`
+ */
+export const createKeyModelName = (domain: string, modelPluralName: string) => {
+  return `${domain}/${modelPluralName}`
+}
+
+/**
+ * Resolves the primary key generator function for a given model.
+ */
+export const getPrimaryKeyGenerator = <TConfig extends Config = Config>(
+  context: CommonContext<TConfig>,
+  domain: string,
+  name: string
+) => {
+  const modelNameToPrimaryKeyGenerator =
+    context.config[CoreNamespace.root].modelNameToPrimaryKeyGenerator || {}
+  const keyModelName = createKeyModelName(domain, name)
+
+  const primaryKeyGenerator = modelNameToPrimaryKeyGenerator[keyModelName]
+    ? modelNameToPrimaryKeyGenerator[keyModelName]
+    : context.config[CoreNamespace.root].primaryKeyGenerator
+
+  return primaryKeyGenerator
+}
 
 export const getPrimaryKeyProperty =
   <TConfig extends Config = Config>(context: CommonContext<TConfig>) =>
@@ -70,7 +98,7 @@ export const getForeignKeyProperty =
  * @param model - The model to wrap
  * @param options - Additional options and overrides
  */
-const createModelCruds = <TData extends DataDescription>(
+export const createModelCruds = <TData extends DataDescription>(
   model: OrmModel<TData> | (() => OrmModel<TData>),
   options?: CrudsOptions<TData>
 ): ModelCrudsFunctions<TData> => {
@@ -183,5 +211,3 @@ const createModelCruds = <TData extends DataDescription>(
     bulkDelete: bulkDeleteFunction,
   }
 }
-
-export { createModelCruds }

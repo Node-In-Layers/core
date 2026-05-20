@@ -11,7 +11,7 @@ const _setup = async () => {
   const globalFeatures = {
     create: sinon.stub().returns({
       loadGlobals: async () => ({
-        config: { '@node-in-layers/core': { apps: [] } },
+        config: { '@node-in-layers/core': { domains: [] } },
       }),
     }),
   }
