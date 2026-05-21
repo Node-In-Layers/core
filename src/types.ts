@@ -346,6 +346,28 @@ export type CrossLayerLoggingOverrides = Readonly<{
 }>
 
 /**
+ * OpenTelemetry-related data carried on {@link CrossLayerProps.logging}.
+ */
+export type CrossLayerLoggingOtel = Readonly<{
+  /**
+   * W3C baggage (or app-defined) for this hop. Forwarded only when
+   * {@link OtelConfig.forwardBaggage} is enabled; replaced entirely per hop (not merged).
+   */
+  baggage?: Readonly<Record<string, string>>
+}>
+
+/**
+ * Options for {@link combineCrossLayerProps} and {@link createCrossLayerProps}.
+ */
+export type CombineCrossLayerPropsOptions = Readonly<{
+  /**
+   * When true, incoming {@link CrossLayerProps.logging.otel} replaces the base
+   * otel slice entirely (not merged key-by-key).
+   */
+  forwardBaggage?: boolean
+}>
+
+/**
  * Common props that can be passed between layers
  * @interface
  */
@@ -363,6 +385,10 @@ export type CrossLayerProps<T extends object = object> = Readonly<{
      * builds props for inner calls via {@link createCrossLayerProps}.
      */
     overrides?: CrossLayerLoggingOverrides
+    /**
+     * OTel baggage and related props; see {@link OtelConfig.forwardBaggage}.
+     */
+    otel?: CrossLayerLoggingOtel
   }
 }> &
   T
@@ -930,6 +956,11 @@ export type OtelConfig = Readonly<{
   metrics?: OtelSignalConfig
   /** Shared exporter defaults (overridden by per-signal exporter). */
   exporter?: OtelExporterConfig
+  /**
+   * When true, {@link CrossLayerProps.logging.otel} (including baggage) is forwarded
+   * on layer hops and replaced entirely from the incoming hop (not key-merged).
+   */
+  forwardBaggage?: boolean
 }>
 
 /**

@@ -8,6 +8,7 @@ import { v4 } from 'uuid'
 import { JsonAble } from 'functional-models'
 import {
   createCrossLayerProps,
+  getOtelForwardBaggageFromConfig,
   createErrorObject,
   isErrorObject,
 } from '../libs.js'
@@ -38,7 +39,7 @@ import {
   XOR,
 } from '../types.js'
 import { memoizeValueSync } from '../utils.js'
-import { createOtelLogMethod } from '../otel/libs.js'
+import { createOtelLogMethod } from '../otel/internal-libs.js'
 import type { OtelServices } from '../otel/types.js'
 import {
   defaultGetFunctionWrapLogLevel,
@@ -149,7 +150,17 @@ const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
     | undefined
   if (otel?.runWithTraceAndMetrics) {
     return otel.runWithTraceAndMetrics(
-      { layerName, domain, functionName, getIds: () => funcLogger.getIds() },
+      {
+        layerName,
+        domain,
+        functionName,
+        getIds: () => funcLogger.getIds(),
+        wrapSpanEvents: {
+          argsForExecuting,
+          omitWrapPayload,
+          recordResult: true,
+        },
+      },
       doWork
     )
   }
@@ -482,7 +493,11 @@ const _layerLogger = <TConfig extends Config = Config>(
             funcLogger as FunctionLogger,
             // @ts-ignore
             ...argsNoCrossLayer,
-            createCrossLayerProps(funcLogger, crossLayer)
+            createCrossLayerProps(
+              funcLogger,
+              crossLayer,
+              getOtelForwardBaggageFromConfig(context.config)
+            )
           ),
       })
     }, func)

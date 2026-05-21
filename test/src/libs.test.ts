@@ -5,6 +5,8 @@ import { describe, it } from 'mocha'
 import z from 'zod'
 import {
   combineCrossLayerProps,
+  crossLayerPropsWithOtelBaggage,
+  getOtelBaggageFromCrossLayerProps,
   annotatedFunction,
   errorObjectSchema,
   createErrorObject,
@@ -166,6 +168,80 @@ describe('/src/libs.ts', () => {
       }
       const actual = combineCrossLayerProps(a, b)
       assert.deepEqual(actual, expected)
+    })
+    it('does not forward logging.otel when forwardBaggage is off', () => {
+      const a = {
+        logging: {
+          ids: [],
+          otel: { baggage: { stale: 'yes' } },
+        },
+      }
+      const b = {
+        logging: {
+          ids: [],
+          otel: { baggage: { tenant: 'acme' } },
+        },
+      }
+      const actual = combineCrossLayerProps(a, b)
+      assert.deepEqual(actual.logging?.otel, { baggage: { stale: 'yes' } })
+    })
+    it('replaces logging.otel when forwardBaggage is on and B supplies otel', () => {
+      const a = {
+        logging: {
+          ids: [],
+          otel: { baggage: { stale: 'yes' } },
+        },
+      }
+      const b = {
+        logging: {
+          ids: [],
+          otel: { baggage: { tenant: 'acme' } },
+        },
+      }
+      const actual = combineCrossLayerProps(a, b, { forwardBaggage: true })
+      assert.deepEqual(actual.logging?.otel, { baggage: { tenant: 'acme' } })
+    })
+    it('keeps base logging.otel when forwardBaggage is on but B has no otel', () => {
+      const a = {
+        logging: {
+          ids: [],
+          otel: { baggage: { keep: 'me' } },
+        },
+      }
+      const b = { logging: { ids: [] } }
+      const actual = combineCrossLayerProps(a, b, { forwardBaggage: true })
+      assert.deepEqual(actual.logging?.otel, { baggage: { keep: 'me' } })
+    })
+  })
+  describe('#getOtelBaggageFromCrossLayerProps()', () => {
+    it('returns undefined for missing or empty baggage', () => {
+      assert.isUndefined(getOtelBaggageFromCrossLayerProps(undefined))
+      assert.isUndefined(getOtelBaggageFromCrossLayerProps({}))
+      assert.isUndefined(
+        getOtelBaggageFromCrossLayerProps({
+          logging: { otel: { baggage: {} } },
+        })
+      )
+    })
+    it('returns baggage when present', () => {
+      const baggage = { tenant: 'acme' }
+      assert.deepEqual(
+        getOtelBaggageFromCrossLayerProps({
+          logging: { otel: { baggage } },
+        }),
+        baggage
+      )
+    })
+  })
+  describe('#crossLayerPropsWithOtelBaggage()', () => {
+    it('sets baggage on logging.otel', () => {
+      const actual = crossLayerPropsWithOtelBaggage({ x: '1' })
+      assert.deepEqual(actual.logging?.otel, { baggage: { x: '1' } })
+    })
+    it('removes logging.otel when baggage is undefined', () => {
+      const base = crossLayerPropsWithOtelBaggage({ x: '1' })
+      const actual = crossLayerPropsWithOtelBaggage(undefined, base)
+      assert.isUndefined(actual.logging?.otel)
     })
   })
   describe('#getLayersUnavailable()', () => {

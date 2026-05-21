@@ -16,7 +16,7 @@
   "dependencies": {
     "@l4t/mcp-ai": "^1.6.0",
     "@node-in-layers/core": "file:..",
-    "@node-in-layers/mcp-server": "^2.5.6",
+    "@node-in-layers/mcp-server": "^2.7.0",
     "argparse": "^2.0.1",
     "es-main": "^1.4.0",
     "lodash": "^4.17.21",

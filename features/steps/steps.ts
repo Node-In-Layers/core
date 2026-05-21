@@ -109,6 +109,77 @@ const readCollectorFile = async (maxAttempts = 30): Promise<string> => {
   return attemptRead(maxAttempts)
 }
 
+type CollectorSpan = Readonly<{
+  traceId: string
+  spanId: string
+  parentSpanId: string
+  name: string
+}>
+
+const flushOtelAndReadCollector = async function (
+  this: TestWorld
+): Promise<string> {
+  if (this.sdk) {
+    await this.sdk.shutdown()
+    this.sdk = undefined
+  }
+  resetOpenTelemetryApiGlobals()
+  await sleep(4500)
+  const content = await readCollectorFile()
+  assert.ok(
+    content && content.length > 0,
+    'expected collector log file to contain telemetry, but it was empty or missing after waiting'
+  )
+  return content
+}
+
+const parseCollectorSpans = (content: string): CollectorSpan[] => {
+  const lines = content
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+
+  const spans: CollectorSpan[] = []
+  for (const line of lines) {
+    if (!line.includes('"resourceSpans"')) {
+      continue
+    }
+    const payload = JSON.parse(line) as {
+      resourceSpans?: ReadonlyArray<{
+        scopeSpans?: ReadonlyArray<{
+          spans?: ReadonlyArray<{
+            traceId?: string
+            spanId?: string
+            parentSpanId?: string
+            name?: string
+          }>
+        }>
+      }>
+    }
+    for (const resourceSpan of payload.resourceSpans ?? []) {
+      for (const scopeSpan of resourceSpan.scopeSpans ?? []) {
+        for (const span of scopeSpan.spans ?? []) {
+          if (!span.traceId || !span.spanId || !span.name) {
+            continue
+          }
+          spans.push({
+            traceId: span.traceId,
+            spanId: span.spanId,
+            parentSpanId: span.parentSpanId ?? '',
+            name: span.name,
+          })
+        }
+      }
+    }
+  }
+  return spans
+}
+
+const findSpanByName = (
+  spans: readonly CollectorSpan[],
+  name: string
+): CollectorSpan | undefined => spans.find(s => s.name === name)
+
 const createDomain1 = () => ({
   name: 'domain1',
   services: {
@@ -122,6 +193,37 @@ const createDomain1 = () => ({
     create: context => ({
       callPing: (crossLayerProps: any) =>
         context.services.domain1.ping(crossLayerProps),
+    }),
+  },
+})
+
+const createDomainB = () => ({
+  name: 'domainB',
+  services: {
+    create: () => ({
+      validate: () => ({ valid: true }),
+      charge: () => ({ charged: true }),
+    }),
+  },
+  features: {
+    create: context => ({
+      processOrder: (crossLayerProps: any) => {
+        context.services.domainB.validate(crossLayerProps)
+        return context.services.domainB.charge(crossLayerProps)
+      },
+    }),
+  },
+})
+
+const createDomainOrchestrator = () => ({
+  name: 'domainOrchestrator',
+  services: {
+    create: () => ({}),
+  },
+  features: {
+    create: context => ({
+      runFlow: (crossLayerProps?: any) =>
+        context.features.domainB.processOrder(crossLayerProps),
     }),
   },
 })
@@ -201,7 +303,7 @@ const CONFIGS = {
     systemName: 'nil-core-features',
     environment: 'cucumber-test',
     [CoreNamespace.root]: {
-      domains: [createDomain1()],
+      domains: [createDomain1(), createDomainB(), createDomainOrchestrator()],
       layerOrder: ['services', 'features', 'entries'],
       logging: {
         logLevel: LogLevelNames.info,
@@ -349,6 +451,11 @@ When('I call domain1 callPing', async function () {
   assert.strictEqual(result, 'pong')
 })
 
+When('I run the multi-domain trace demo', async function () {
+  const result = await this.system.features.domainOrchestrator.runFlow()
+  assert.deepStrictEqual(result, { charged: true })
+})
+
 When(
   'I call domain1 callPing with feature ids {string} and {string}',
   async function (outerId: string, innerId: string) {
@@ -385,23 +492,184 @@ Then(
 )
 
 Then(
-  'the collector logs should contain two featureId attributes',
+  'the collector trace spans for callPing should share one traceId',
   { timeout: 30_000 },
   async function () {
-    // Shut down this scenario's SDK so any in-process spans/logs are flushed to the collector.
-    if (this.sdk) {
-      await this.sdk.shutdown()
-      this.sdk = undefined
-    }
-    resetOpenTelemetryApiGlobals()
-
-    await sleep(4500)
-    const content = await readCollectorFile()
+    const content = await flushOtelAndReadCollector.call(this)
+    const spans = parseCollectorSpans(content)
+    const featureSpan = findSpanByName(spans, 'features:domain1:callPing')
+    const serviceSpan = findSpanByName(spans, 'services:domain1:ping')
 
     assert.ok(
-      content && content.length > 0,
-      'expected collector log file to contain telemetry, but it was empty or missing after waiting'
+      featureSpan,
+      `expected features:domain1:callPing span; found: ${spans.map(s => s.name).join(', ')}`
     )
+    assert.ok(
+      serviceSpan,
+      `expected services:domain1:ping span; found: ${spans.map(s => s.name).join(', ')}`
+    )
+    assert.strictEqual(
+      featureSpan.traceId,
+      serviceSpan.traceId,
+      `expected one traceId for callPing chain, got feature=${featureSpan.traceId} service=${serviceSpan.traceId}`
+    )
+  }
+)
+
+Then(
+  'the collector trace should have one traceId',
+  { timeout: 30_000 },
+  async function () {
+    const content = await flushOtelAndReadCollector.call(this)
+    const spans = parseCollectorSpans(content)
+    const traceIds = [...new Set(spans.map(s => s.traceId))]
+
+    assert.ok(
+      spans.length > 0,
+      'expected at least one span in collector output'
+    )
+    assert.strictEqual(
+      traceIds.length,
+      1,
+      `expected one traceId across all spans, got ${traceIds.join(', ')}; spans: ${spans.map(s => s.name).join(', ')}`
+    )
+  }
+)
+
+Then(
+  'the collector trace should contain spans:',
+  { timeout: 30_000 },
+  async function (dataTable: {
+    hashes: () => Array<{ name: string; parent: string }>
+  }) {
+    const content = await flushOtelAndReadCollector.call(this)
+    const spans = parseCollectorSpans(content)
+    const byName = new Map(spans.map(s => [s.name, s]))
+
+    for (const row of dataTable.hashes()) {
+      const span = byName.get(row.name)
+      assert.ok(
+        span,
+        `expected span ${row.name}; found: ${spans.map(s => s.name).join(', ')}`
+      )
+
+      if (row.parent === 'root') {
+        assert.ok(
+          !span.parentSpanId,
+          `expected ${row.name} to be trace root, got parentSpanId=${span.parentSpanId}`
+        )
+        continue
+      }
+
+      const parentSpan = byName.get(row.parent)
+      assert.ok(
+        parentSpan,
+        `expected parent span ${row.parent} for ${row.name}; found: ${spans.map(s => s.name).join(', ')}`
+      )
+      assert.strictEqual(
+        span.traceId,
+        parentSpan.traceId,
+        `expected ${row.name} and ${row.parent} to share traceId`
+      )
+      assert.strictEqual(
+        span.parentSpanId,
+        parentSpan.spanId,
+        `expected ${row.name} nested under ${row.parent}, got parentSpanId=${span.parentSpanId || '(root)'}`
+      )
+    }
+  }
+)
+
+Then(
+  'the collector logs should be correlated to the trace',
+  { timeout: 30_000 },
+  async function () {
+    const content = await flushOtelAndReadCollector.call(this)
+    const spans = parseCollectorSpans(content)
+    const traceIds = [...new Set(spans.map(s => s.traceId))]
+    assert.strictEqual(
+      traceIds.length,
+      1,
+      'expected one traceId before checking logs'
+    )
+    const traceId = traceIds[0]
+
+    const lines = content
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+    const logsLine = lines.find(line => line.includes('"resourceLogs"'))
+    assert.ok(logsLine, 'expected a resourceLogs payload in the collector file')
+
+    const logsPayload = JSON.parse(logsLine) as {
+      resourceLogs?: ReadonlyArray<{
+        scopeLogs?: ReadonlyArray<{
+          logRecords?: ReadonlyArray<{
+            traceId?: string
+            spanId?: string
+          }>
+        }>
+      }>
+    }
+
+    const logRecords = (logsPayload.resourceLogs ?? [])
+      .flatMap(rl => rl.scopeLogs ?? [])
+      .flatMap(sl => sl.logRecords ?? [])
+
+    assert.ok(logRecords.length > 0, 'expected at least one log record')
+    for (const record of logRecords) {
+      assert.strictEqual(
+        record.traceId,
+        traceId,
+        `expected log traceId ${traceId}, got ${record.traceId || '(empty)'}`
+      )
+      assert.ok(
+        record.spanId && record.spanId.length > 0,
+        'expected log record to include a non-empty spanId'
+      )
+    }
+  }
+)
+
+Then(
+  'the collector trace span {string} should be nested under {string}',
+  { timeout: 30_000 },
+  async function (childName: string, parentName: string) {
+    const content = await flushOtelAndReadCollector.call(this)
+    const spans = parseCollectorSpans(content)
+    const parentSpan = findSpanByName(spans, parentName)
+    const childSpan = findSpanByName(spans, childName)
+
+    assert.ok(
+      parentSpan,
+      `expected parent span ${parentName}; found: ${spans.map(s => s.name).join(', ')}`
+    )
+    assert.ok(
+      childSpan,
+      `expected child span ${childName}; found: ${spans.map(s => s.name).join(', ')}`
+    )
+    assert.strictEqual(
+      childSpan.traceId,
+      parentSpan.traceId,
+      `expected same traceId for ${childName} and ${parentName}, got child=${childSpan.traceId} parent=${parentSpan.traceId}`
+    )
+    assert.strictEqual(
+      childSpan.parentSpanId,
+      parentSpan.spanId,
+      `expected ${childName} parentSpanId=${parentSpan.spanId}, got ${childSpan.parentSpanId || '(root)'}`
+    )
+    assert.ok(
+      !parentSpan.parentSpanId,
+      `expected ${parentName} to be a trace root (empty parentSpanId), got parentSpanId=${parentSpan.parentSpanId}`
+    )
+  }
+)
+
+Then(
+  'the collector logs should contain two id_featureId attributes',
+  { timeout: 30_000 },
+  async function () {
+    const content = await flushOtelAndReadCollector.call(this)
 
     // File is JSON Lines (one OTLP payload per line). Find the logs payload.
     const lines = content
@@ -419,12 +687,12 @@ Then(
       .flatMap(rl => (rl?.scopeLogs ?? []) as any[])
       .flatMap(sl => (sl?.logRecords ?? []) as any[])
       .flatMap(lr => (lr?.attributes ?? []) as any[])
-      .filter((attr: any) => attr?.key === 'featureId').length
+      .filter((attr: any) => attr?.key === 'id_featureId').length
 
     assert.strictEqual(
       featureIdCount,
       2,
-      `expected exactly two featureId attributes in collector logs, but found ${featureIdCount}`
+      `expected exactly two id_featureId attributes in collector logs, but found ${featureIdCount}`
     )
   }
 )

@@ -7,6 +7,8 @@ import {
   Config,
   ErrorObject,
   CrossLayerProps,
+  CrossLayerLoggingOtel,
+  CombineCrossLayerPropsOptions,
   LogId,
   NilFunction,
   NilAnnotatedFunction,
@@ -17,6 +19,7 @@ import {
   Logger,
   SyncNilFunction,
   CrossLayerLoggingOverrides,
+  CoreNamespace,
 } from './types.js'
 
 /**
@@ -198,15 +201,25 @@ const stripLoggingOverridesFromCrossLayerProps = (
  * @param logger - The current logger (used to extract its id stack).
  * @param crossLayerProps - Any existing cross-layer props to merge into.
  */
+/** Reads {@link OtelConfig.forwardBaggage} from NIL config. */
+export const getOtelForwardBaggageFromConfig = (
+  config: Config
+): CombineCrossLayerPropsOptions | undefined => {
+  const forwardBaggage =
+    config[CoreNamespace.root]?.logging?.otel?.forwardBaggage === true
+  return forwardBaggage ? { forwardBaggage: true } : undefined
+}
+
 export const createCrossLayerProps = (
   logger: Logger,
-  crossLayerProps?: CrossLayerProps
+  crossLayerProps?: CrossLayerProps,
+  options?: CombineCrossLayerPropsOptions
 ) => {
   const ids = logger.getIds()
   const base = crossLayerProps
     ? stripLoggingOverridesFromCrossLayerProps(crossLayerProps)
     : ({} as CrossLayerProps)
-  return combineCrossLayerProps(base, { logging: { ids } })
+  return combineCrossLayerProps(base, { logging: { ids } }, options)
 }
 
 /**
@@ -238,11 +251,13 @@ export const combineCrossLayerProps = <
   TIn2 extends CrossLayerProps = CrossLayerProps,
 >(
   crossLayerPropsA: TIn1,
-  crossLayerPropsB: TIn2
+  crossLayerPropsB: TIn2,
+  options?: CombineCrossLayerPropsOptions
 ): TIn1 & TIn2 => {
   const loggingData = crossLayerPropsA.logging || {}
+  const loggingB = crossLayerPropsB.logging || {}
   const ids = loggingData.ids || []
-  const currentIds = crossLayerPropsB.logging?.ids || []
+  const currentIds = loggingB.ids || []
 
   const existingIds = ids.reduce(
     (acc, obj) => {
@@ -270,14 +285,63 @@ export const combineCrossLayerProps = <
   const finalIds = ids.concat(unique)
   const otherPropsA = omit(crossLayerPropsA, 'logging')
   const otherPropsB = omit(crossLayerPropsB, 'logging')
+
+  const otelFromA = loggingData.otel
+  const incomingOtel = loggingB.otel
+  const resolvedOtel: CrossLayerLoggingOtel | undefined =
+    options?.forwardBaggage === true && incomingOtel !== undefined
+      ? incomingOtel
+      : otelFromA
+
+  const loggingFromA = omit(loggingData, 'ids', 'otel', 'overrides')
+  const loggingFromB = omit(loggingB, 'ids', 'otel', 'overrides')
+
   return merge({}, otherPropsA, otherPropsB, {
     logging: merge(
-      {
-        ids: finalIds,
-      },
-      loggingData
+      { ids: finalIds },
+      loggingFromA,
+      loggingFromB,
+      resolvedOtel !== undefined ? { otel: resolvedOtel } : {}
     ),
   }) as TIn1 & TIn2
+}
+
+/**
+ * Returns {@link CrossLayerProps.logging.otel.baggage} when present.
+ */
+export const getOtelBaggageFromCrossLayerProps = (
+  crossLayerProps?: CrossLayerProps | undefined
+): Readonly<Record<string, string>> | undefined => {
+  const baggage = crossLayerProps?.logging?.otel?.baggage
+  if (!baggage || Object.keys(baggage).length === 0) {
+    return undefined
+  }
+  return baggage
+}
+
+/**
+ * Sets {@link CrossLayerProps.logging.otel.baggage}, replacing any existing logging.otel object.
+ */
+export const crossLayerPropsWithOtelBaggage = (
+  baggage: Readonly<Record<string, string>> | undefined,
+  crossLayerProps?: CrossLayerProps
+): CrossLayerProps => {
+  const base = crossLayerProps ?? ({} as CrossLayerProps)
+  const prevLogging = base.logging ?? {}
+  if (baggage === undefined || Object.keys(baggage).length === 0) {
+    const loggingWithoutOtel = omit(prevLogging, 'otel')
+    if (Object.keys(loggingWithoutOtel).length === 0) {
+      return omit(base, 'logging') as CrossLayerProps
+    }
+    return merge({}, omit(base, 'logging'), {
+      logging: loggingWithoutOtel,
+    }) as CrossLayerProps
+  }
+  return merge({}, base, {
+    logging: merge({}, omit(prevLogging, 'otel'), {
+      otel: { baggage },
+    }),
+  }) as CrossLayerProps
 }
 
 /**

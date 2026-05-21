@@ -18,9 +18,18 @@ export type AttributesMap = Readonly<Record<string, AttributeValue>>
  * An object that can be adapted into a {@link SpanLike} (e.g. a raw span from the OTel API).
  * @interface
  */
+export type SpanContextLike = Readonly<{
+  traceId: string
+  spanId: string
+}>
+
 export type SpanWrappable = Readonly<{
   /** Ends the span. */
   end: () => void
+  /**
+   * Adds a timed event to the span when the underlying implementation supports it.
+   */
+  addEvent?: (name: string, attributes?: Record<string, unknown>) => void
   /**
    * Sets a single attribute on the span.
    * @param key - The attribute name.
@@ -32,6 +41,8 @@ export type SpanWrappable = Readonly<{
    * @param status - The {@link SpanStatus} to apply.
    */
   setStatus: (status: SpanStatus) => void
+  /** Returns trace/span ids when the underlying span supports it. */
+  spanContext?: () => SpanContextLike | undefined
 }>
 
 /**
@@ -195,6 +206,14 @@ export type RunWithTraceAndMetricsOptions = Readonly<{
    * Returns the current {@link LogId} stack for inclusion as span attributes.
    */
   getIds: () => readonly LogId[]
+  /**
+   * When set, records additive span events for wrap args/result (logs still emitted separately).
+   */
+  wrapSpanEvents?: Readonly<{
+    argsForExecuting?: readonly unknown[]
+    omitWrapPayload?: boolean
+    recordResult?: boolean
+  }>
 }>
 
 /**

@@ -79,7 +79,7 @@ Node In Layers is a dependency injection framework as well as an opinionated fra
 
 Unlike every other layer in Node In Layers, this "globals" layer is a special "layer." This layer is made widely available throughout the system, and has no namespaces. (Therefore be careful of collisions).
 
-Simply create a constructor function in an apps `globals.ts` file, and it will create the dependencies at the beginning of runtime, and then distributed up the app stack.
+Simply create a constructor function in a domain's `globals.ts` file, and it will create the dependencies at the beginning of runtime, and then distributed up the domain stack.
 
 ### Services - The Outside World Communicators
 
@@ -93,7 +93,7 @@ Every system has features. A feature is ultimately made up of multiple steps lai
 
 In order to kick off a feature, you need a place to do it. Command lines, web application endpoints, cloud serverless handlers. The same feature can be run from multiple locations. Any code that is related to how specifically parts of your system will run, we call "entries".
 
-One example is Express server code. There is considerable plumbing to get an express server to work (apps, routers, controllers). This plumbing code is used to create multiple entry points into the code via a listening server that has multiple endpoints.
+One example is Express server code. There is considerable plumbing to get an express server to work (domains, routers, controllers). This plumbing code is used to create multiple entry points into the code via a listening server that has multiple endpoints.
 
 ## Honorable Mentions
 
@@ -324,21 +324,72 @@ When `loadSystem()` runs, it:
   - Every framework log is forwarded to OTel with:
     - `body` = log message
     - `severityNumber` / `severityText` mapped from NIL `logLevel`
-    - Attributes:
-      - `logger` (e.g. `domain:layer:function`)
-      - `environment`
-      - All ids from `logMessage.ids`, flattened into keys like `runtimeId`, `featureId`, `featureId-2`, `requestId`, `requestId-2`, etc.
-      - `error` when present
+    - `traceId` / `spanId` from the active span when tracing is enabled
+    - Attributes (flat, not nested JSON blobs):
+      - Framework envelope: `id`, `logger`, `environment`, `logLevel`, `message`, `datetime`
+      - `domain`, `layer`, `function`, `model` when present on the log message
+      - Correlation ids from `logMessage.ids` as **`id_<key>`** (e.g. `id_requestId`, `id_functionCallId_2`) — never capped
+      - `args`, `result`, `error`, and other custom top-level fields — capped via `logging.maxLogSizeInCharacters` only
 
 - **Spans** (optional, via `runWithTraceAndMetrics`):
 
-  - NIL starts a span per wrapped layer function (name = `layer:function`).
-  - Span attributes include the same flattened ids (so your `functionCallId` etc. travel with the span).
+  - One active span per wrapped layer function (`features:domain:function`, etc.).
+  - SpanKind: **SERVER** for `entries` / `features`, **CLIENT** for `services`.
+  - Span attributes: `id_*` correlation keys plus `domain`, `layer`, `function`.
+  - Optional **span events** (`nil.execute.start` / `nil.execute.end`) with capped `args`/`result` when wrap logging runs (additive; Executing/Executed logs unchanged).
 
 - **Metrics** (optional, via `runWithTraceAndMetrics`):
-  - Histograms `layer.function.duration` (ms) and counters `layer.function.calls`, with attributes `{ layer, function }`.
+  - `layer.function.duration` (histogram, ms)
+  - `layer.function.calls`, `layer.function.success`, `layer.function.errors` (counters; errors include `error.code` when known)
 
-Your OpenTelemetry SDK and exporters decide where this data goes (OTLP, vendor backend, etc.). NIL’s job is to forward structured logs/ids and layer identity into the OTel APIs, based purely on configuration.
+### 5. Grafana / Loki correlation (Mongo log parity)
+
+When logs land in Loki via an OTel pipeline, use the same mental model as Mongo log search:
+
+| Goal                                   | LogQL (examples)                                                     |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| Anchor on a business id                | `{service_name="..."} \| json \| id_requestId="<uuid>"`              |
+| Search when you do not know the id key | `{service_name="..."} \|~ "<uuid>"` (matches anywhere on the line)   |
+| Jump from log to trace                 | Use `trace_id` on the log row (OTel export) with Tempo “trace by id” |
+| Anchor on NIL log id                   | `id="<log-message-uuid>"` in json parsed attributes                  |
+
+`trace_id` (OTel) and `id_*` (NIL business ids) coexist on the same row; prefer `id_requestId` (or your primary id) for product correlation, and `trace_id` for distributed trace drill-down.
+
+### 6. W3C baggage via `crossLayerProps.logging.otel` (opt-in)
+
+Baggage is **not** merged into `logging.ids`. It lives under `crossLayerProps.logging.otel.baggage` and only propagates when you enable:
+
+```typescript
+logging: {
+  otel: {
+    forwardBaggage: true,
+    // trace / logs / metrics as before
+  },
+}
+```
+
+**Replace semantics:** each hop that forwards baggage must supply the full `logging.otel` object you want downstream (keys are not merged across hops).
+
+```typescript
+import {
+  crossLayerPropsWithOtelBaggage,
+  getOtelBaggageFromCrossLayerProps,
+} from '@node-in-layers/core'
+
+// At the HTTP edge (your code — core does not call propagation.extract):
+const props = crossLayerPropsWithOtelBaggage(
+  { tenantId: 'acme', experiment: 'b' },
+  incomingCrossLayerProps
+)
+await features.myFeature.run(input, props)
+
+// Before outbound HTTP from a layer:
+const baggage = getOtelBaggageFromCrossLayerProps(crossLayerProps)
+```
+
+Public OTel surface from core: `OTEL_ID_ATTRIBUTE_PREFIX` from `@node-in-layers/core` (re-exported `./otel/libs.js`). Baggage helpers are on the main `./libs.js` export.
+
+Your OpenTelemetry SDK and exporters decide where this data goes (OTLP, vendor backend, etc.). NIL forwards structured logs, `id_*` attributes, layer identity, and optional baggage based on configuration.
 
 # Models
 
@@ -348,7 +399,7 @@ With just a bit of configuration and convention, models are automatically config
 
 ## Creating Models
 
-You can create models for an app by creating a directory called "models" and inside placing one model per file. Like so:
+You can create models for a domain by creating a directory called "models" and inside placing one model per file. Like so:
 
 ```
 /src/transportation/models/
@@ -367,7 +418,7 @@ export * as Vehicles from './vehicles'
 This way the system can do...
 
 ```typescript
-apps.yourApp.models.Aircrafts.create()
+domains.yourDomain.models.Aircrafts.create()
 ```
 
 If this index.ts file does not exist, and does not export your model, it is not read into the system.
@@ -434,7 +485,7 @@ import { DataNamespace } from '@node-in-layers/data/index.js'
 
 // Core configurations
 const core = {
-  apps: await Promise.all([
+  domains: await Promise.all([
     import('@node-in-layers/data/index.js'),
     import('./src/my-custom-model-factory/index.js'),
     import('./src/my-auth/index.js'),
@@ -483,9 +534,9 @@ export default () => ({
 
 #### NOTE: Model Loading Order
 
-You need to know that loading apps in order will affect the ability to reference other models. So if your model has a reference to another model, that model needs to be in an app loaded before your app. The one exception to this, is if your model is within the same app.
+You need to know that loading domains in order will affect the ability to reference other models. So if your model has a reference to another model, that model needs to be in a domain loaded before your domain. The one exception to this, is if your model is within the same domain.
 
-Here is an example of both a model that needs a model from a previously loaded app and the same app:
+Here is an example of both a model that needs a model from a previously loaded domain and the same domain:
 
 ```typescript
 // /src/transportation/models/Vehicle.ts
@@ -496,7 +547,7 @@ import {
   PrimaryKeyUuidProperty,
 } from 'functional-models'
 import { ModelProps } from '@node-in-layers/core'
-// Business app is loaded before transportation
+// Business domain is loaded before transportation
 import { Vendor } from '../business/types'
 import { Vehicle, Driver } from '../types'
 
@@ -512,7 +563,7 @@ const create = ({ Model, fetcher, getModel }: ModelProps) => {
       }),
       model: TextProperty({ required: true }),
       color: TextProperty({ required: true }),
-      // Drivers model is in the same app.
+      // Drivers model is in the same domain.
       driver: ModelReference<Driver>(getModel('transportation', 'Drivers')),
     },
   })
@@ -522,7 +573,7 @@ export { create }
 
 #### NOTE: Custom Model Factories and Models
 
-You'll notice above that the custom model factory was created and provided in a different app, that exists BEFORE our models. This is extremely important. Models are loaded just before services, so that they can be provided to services. This means that any custom `getModelProps(storeName: string)` function must exist in a services prior to the currently being loaded services.
+You'll notice above that the custom model factory was created and provided in a different domain, that exists BEFORE our models. This is extremely important. Models are loaded just before services, so that they can be provided to services. This means that any custom `getModelProps(storeName: string)` function must exist in a services prior to the currently being loaded services.
 
 ### Services
 
@@ -619,7 +670,7 @@ import { DataNamespace } from '@node-in-layers/data/index.js'
 
 // Core configurations
 const core = {
-  apps: await Promise.all([
+  domains: await Promise.all([
     import('@node-in-layers/data/index.js'),
     import('./src/my-custom-model-factory/index.js'),
     import('./src/my-auth/index.js'),
@@ -694,11 +745,13 @@ The singular complete unit of computer code with implementations
 
 #### Package
 
-A collection of apps.
+A collection of domains.
 
-#### App
+#### Domain
 
 A highly cohesive grouping of code that adds features and capabilities to the overall system. This is the primary area where "like" business functionality lives.
+
+> **Deprecation:** The `App` type and `core.apps` config key are deprecated aliases for `Domain` and `core.domains`. New code should use `domains` / `Domain`.
 
 #### Layer
 
@@ -708,23 +761,23 @@ Code that fills a categorical need. Either entries/libs/utils/features/services
 
 An abstract description of a type of data. Similar to the idea of a class.
 
-# System Design - App and Layer Loading
+# System Design - Domain and Layer Loading
 
-The system is started up according to the configuration file for your server. Inside the configuration you specify the order of the apps via `core.apps`, and the order of the layers via `core.layerOrder`. This allows you to customize and create new layers, as well as put your apps at whatever layer you decide.
+The system is started up according to the configuration file for your server. Inside the configuration you specify the order of the domains via `core.domains`, and the order of the layers via `core.layerOrder`. This allows you to customize and create new layers, as well as put your domains at whatever layer you decide.
 
-Each app is loaded in order, and each layer within that app is loaded in order. This increasing stack of layer dependencies, are provided to each loaded layer, so that they have full access to the layers they are supposed to and the apps that have come before it.
+Each domain is loaded in order, and each layer within that domain is loaded in order. This increasing stack of layer dependencies, are provided to each loaded layer, so that they have full access to the layers they are supposed to and the domains that have come before it.
 
 #### IMPORTANT
 
-Apps must be named uniquely across the system. Otherwise there will be name/layer collisions. As a result the system will check if a non unique name is found, and then an exception is thrown at system start.
+Domains must be named uniquely across the system. Otherwise there will be name/layer collisions. As a result the system will check if a non unique name is found, and then an exception is thrown at system start.
 
 # System Design - Naming Standards
 
 ## Directories
 
-The `src/` directory should contain sub-folders that are apps, and should generally be singular, unless it doesn't read well. Example: `src/auth` or `src/inventories`.
+The `src/` directory should contain sub-folders that are domains, and should generally be singular, unless it doesn't read well. Example: `src/auth` or `src/inventories`.
 
-Inside of these app folders, there should be the layers of the app, which can either be a single file for relatively small layers: `src/auth/services.ts` or a directory that has files under it for larger layers: `src/auth/services/index.ts`. Note: There should always be an index.ts in the app folder and any layer folder.
+Inside of these domain folders, there should be the layers of the domain, which can either be a single file for relatively small layers: `src/auth/services.ts` or a directory that has files under it for larger layers: `src/auth/services/index.ts`. Note: There should always be an index.ts in the domain folder and any layer folder.
 
 # Some Gotchas
 

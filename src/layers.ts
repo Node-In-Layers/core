@@ -25,7 +25,10 @@ import {
   ServicesContext,
   ModelCrudsFunctions,
 } from './types.js'
-import { createCrossLayerProps } from './libs.js'
+import {
+  createCrossLayerProps,
+  getOtelForwardBaggageFromConfig,
+} from './libs.js'
 import {
   DoNothingFetcher,
   getCoreDomains,
@@ -479,6 +482,9 @@ export const features = {
           [`${CoreNamespace.otel}.services`]: true,
         }
       )
+      const crossLayerMergeOpts = getOtelForwardBaggageFromConfig(
+        commonContext.config
+      )
 
       if (
         !commonContext.config[CoreNamespace.root].noModelLogWrap &&
@@ -514,7 +520,11 @@ export const features = {
                         // @ts-ignore
                         return func(
                           ...argsNoCrossLayer,
-                          createCrossLayerProps(log, crossLayer)
+                          createCrossLayerProps(
+                            log,
+                            crossLayer,
+                            crossLayerMergeOpts
+                          )
                         )
                       }, func),
                       { model: modelName }
@@ -574,7 +584,11 @@ export const features = {
                       ...argsNoCrossLayer,
                       crossLayer !== undefined
                         ? crossLayer
-                        : createCrossLayerProps(layerLogger, undefined)
+                        : createCrossLayerProps(
+                            layerLogger,
+                            undefined,
+                            crossLayerMergeOpts
+                          )
                     )
                   }, func)
                   return merge(acc3, { [propertyName]: newFunc })
@@ -635,7 +649,7 @@ export const features = {
                   // @ts-ignore
                   return func(
                     ...argsNoCrossLayer,
-                    createCrossLayerProps(log, crossLayer)
+                    createCrossLayerProps(log, crossLayer, crossLayerMergeOpts)
                   )
                 }, func)
               ),
@@ -689,6 +703,9 @@ export const features = {
         const ignoreLayerFunctions =
           commonContext.config[CoreNamespace.root].logging
             ?.ignoreLayerFunctions || {}
+        const crossLayerMergeOpts = getOtelForwardBaggageFromConfig(
+          commonContext.config
+        )
 
         const wrappedContext = Object.entries(layerContext).reduce(
           (acc, [layerKey, layerData]) => {
@@ -733,7 +750,11 @@ export const features = {
                         ...argsNoCrossLayer,
                         crossLayer !== undefined
                           ? crossLayer
-                          : createCrossLayerProps(layerLogger, undefined)
+                          : createCrossLayerProps(
+                              layerLogger,
+                              undefined,
+                              crossLayerMergeOpts
+                            )
                       )
                     }, func)
                     return merge(acc3, { [propertyName]: newFunc })
@@ -793,7 +814,11 @@ export const features = {
                     // @ts-ignore
                     return func(
                       ...argsNoCrossLayer,
-                      createCrossLayerProps(log, crossLayer)
+                      createCrossLayerProps(
+                        log,
+                        crossLayer,
+                        crossLayerMergeOpts
+                      )
                     )
                   }, func)
                 ),
