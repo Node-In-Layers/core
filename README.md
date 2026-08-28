@@ -185,8 +185,34 @@ To make this work every function is automatically passed a CrossLayerProps argum
 If you wish to create additional log messages, you can use:
 
 ```typescript
-const log = context.log.getInnerLog('yourFunctionName', crossLayerProps)
+const log = context.log.getInnerLogger('yourFunctionName', crossLayerProps)
 log.info('A log inside')
+```
+
+If you want to instrument work within a function, prefer `getInnerLogger()` and then use:
+
+```typescript
+const log = context.log.getInnerLogger('reconcileInvoice', crossLayerProps)
+
+await log.wrapStep(
+  () => {
+    return context.services.billing.validateInvoice(payload, crossLayerProps)
+  },
+  {
+    args: [payload],
+  }
+)
+
+await log.wrapFunctionCall(
+  'saveInvoice',
+  async saveLog => {
+    saveLog.info('Persisting invoice')
+    return context.services.billing.saveInvoice(payload, crossLayerProps)
+  },
+  {
+    args: [payload],
+  }
+)
 ```
 
 ```typescript

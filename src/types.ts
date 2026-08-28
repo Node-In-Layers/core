@@ -461,26 +461,48 @@ export type FunctionLogWrapOptions = Readonly<{
 export type FunctionLogger = Logger &
   Readonly<{
     /**
-     * Runs `fn` with the same Executing/Executed logging (and OTel when configured) as a wrapped layer function.
+     * Deprecated alias for {@link FunctionLogger.wrapStep}.
      */
     wrap: <T>(
       fn: () => T | Promise<T>,
       options?: FunctionLogWrapOptions
     ) => T | Promise<T>
     /**
+     * Runs `fn` with layer-style Executing/Executed logging using this logger's current scope.
+     * If a name is provided, the step runs under a child inner-logger scope without creating
+     * a new `functionCallId`.
+     */
+    wrapStep: {
+      <T>(
+        fn: () => T | Promise<T>,
+        options?: FunctionLogWrapOptions
+      ): T | Promise<T>
+      <T>(
+        name: string,
+        fn: () => T | Promise<T>,
+        options?: FunctionLogWrapOptions
+      ): T | Promise<T>
+    }
+    /**
+     * Wraps a helper call as its own function scope, creates a new `functionCallId`,
+     * and passes the created {@link FunctionLogger} as the first argument to `fn`.
+     */
+    wrapFunctionCall: <T>(
+      functionName: string,
+      fn: (
+        functionLogger: FunctionLogger,
+        ...args: readonly unknown[]
+      ) => T | Promise<T>,
+      options?: FunctionLogWrapOptions
+    ) => T | Promise<T>
+    /**
      * Nested function scope under this logger's path (new `functionCallId`).
+     * This is mainly useful when you want to pass a named function logger to another helper.
      */
     getFunctionLogger: (
       name: string,
       crossLayerProps?: CrossLayerProps
     ) => FunctionLogger
-    /**
-     * Inner logger without a new function-call id (same idea as {@link LayerLogger.getInnerLogger}).
-     */
-    getInnerLogger: (
-      functionName: string,
-      crossLayerProps?: CrossLayerProps
-    ) => Logger
   }>
 
 /**
@@ -530,25 +552,15 @@ export type LayerLogger = Logger &
       additionalData?: Record<string, any>
     ) => (...a: A) => T
     /**
-     * Gets a function level logger. This is not the recommended logger for most uses especially within layers.
-     * Use getInnerLogger.
-     * A common pattern is to wrap the
-     * @param name - The name of the function
-     * @param crossLayerProps - Any additional crossLayerProps.
-     */
-    getFunctionLogger: (
-      name: string,
-      crossLayerProps?: CrossLayerProps
-    ) => FunctionLogger
-    /**
-     * The primary recommended way to log within a function. Creates a logger within a function, makes sure the ids are passed along.
-     * @param functionName - The name of the function
+     * The primary recommended way to log within a function. Creates a child logger scope,
+     * makes sure the ids are passed along, and supports nested wrapping helpers.
+     * @param name - The child scope name
      * @param crossLayerProps - Any additional crossLayerProps.
      */
     getInnerLogger: (
-      functionName: string,
+      name: string,
       crossLayerProps?: CrossLayerProps
-    ) => Logger
+    ) => FunctionLogger
   }>
 
 /**

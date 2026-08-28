@@ -13,6 +13,7 @@ import {
 import {
   CommonContext,
   CoreNamespace,
+  LogId,
   LogFormat,
   LogLevelNames,
   LogMessage,
@@ -1066,32 +1067,32 @@ describe('/src/globals/logging.ts', () => {
             })
           })
 
-          describe('#getFunctionLogger()', () => {
+          describe('#getInnerLogger()', () => {
             it('should produce a logger named myApp:services:myFunction when a log message is created', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const log = logger
                 .getLogger(context)
                 .getDomainLogger('myApp')
                 .getLayerLogger('services')
-                .getFunctionLogger('myFunction')
+                .getInnerLogger('myFunction')
               log.info('test')
               const actual = mockLogMethod.getCall(0).args[0].logger
               const expected = 'myApp:services:myFunction'
               assert.deepEqual(actual, expected)
             })
 
-            it('should create a functionCallId automatically', () => {
+            it('should not create a functionCallId automatically', () => {
               const { context, logger, mockLogMethod } = _getMockLogger()
               const log = logger
                 .getLogger(context)
                 .getDomainLogger('myApp')
                 .getLayerLogger('services')
-                .getFunctionLogger('myFunction')
+                .getInnerLogger('myFunction')
               log.info('test')
               const actual = mockLogMethod
                 .getCall(0)
                 .args[0].ids.find(x => 'functionCallId' in x)
-              assert.isOk(actual)
+              assert.isNotOk(actual)
             })
 
             it('should have function:myFunction as a property in the message', () => {
@@ -1100,7 +1101,7 @@ describe('/src/globals/logging.ts', () => {
                 .getLogger(context)
                 .getDomainLogger('myApp')
                 .getLayerLogger('services')
-                .getFunctionLogger('myFunction')
+                .getInnerLogger('myFunction')
               log.info('test')
               const actual = mockLogMethod.getCall(0).args[0].function
               const expected = 'myFunction'
@@ -1113,7 +1114,7 @@ describe('/src/globals/logging.ts', () => {
                 .getLogger(context)
                 .getDomainLogger('myApp')
                 .getLayerLogger('services')
-                .getFunctionLogger('myFunction', {
+                .getInnerLogger('myFunction', {
                   logging: {
                     ids: [{ fake: 'id' }],
                   },
@@ -1136,7 +1137,7 @@ describe('/src/globals/logging.ts', () => {
               assert.throws(
                 () =>
                   log
-                    .getFunctionLogger('myFunction')
+                    .getInnerLogger('myFunction')
                     .getIdLogger('test', 'keyNoValue'),
                 'Need value if providing a key'
               )
@@ -1149,6 +1150,38 @@ describe('/src/globals/logging.ts', () => {
                 .getLayerLogger('services')
               const idLog = log.getIdLogger('name', { id: 'key' })
               assert.isOk(idLog.getIds().find(x => 'id' in x))
+            })
+          })
+
+          describe('#wrapFunctionCall()', () => {
+            it('should create a functionCallId for the wrapped helper call', async () => {
+              const { context, logger, mockLogMethod } = _getMockLogger()
+              const log = logger
+                .getLogger(context)
+                .getDomainLogger('myApp')
+                .getLayerLogger('services')
+                .getInnerLogger('outerScope')
+
+              const input = { args: [{ itemId: 'abc-123' }] }
+
+              await log.wrapFunctionCall(
+                'myFunction',
+                async functionLogger => {
+                  functionLogger.info('test')
+                },
+                { args: input.args }
+              )
+
+              const actual = mockLogMethod
+                .getCalls()
+                .map(call => call.args[0])
+                .find(message => {
+                  return (
+                    message.function === 'myFunction' &&
+                    message.ids.find((x: LogId) => 'functionCallId' in x)
+                  )
+                })
+              assert.isOk(actual)
             })
           })
         })

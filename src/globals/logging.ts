@@ -167,56 +167,108 @@ const runLayerFunctionWrapBlock = <T, TConfig extends Config = Config>(
   return doWork()
 }
 
+const createScopedLoggerCore = (
+  baseLogger: Logger,
+  scopeName: string,
+  crossLayerProps: CrossLayerProps | undefined,
+  additionalData: Record<string, any> | undefined,
+  createFunctionCallId: boolean
+) => {
+  const scoped = createFunctionCallId
+    ? baseLogger.getIdLogger(scopeName, 'functionCallId', v4())
+    : baseLogger.getSubLogger(scopeName)
+  const withScope = scoped.applyData({
+    function: scopeName,
+  })
+  const withLogging = withScope.applyData(
+    combineLoggingProps(withScope, crossLayerProps)
+  )
+  return additionalData ? withLogging.applyData(additionalData) : withLogging
+}
+
+const normalizeWrapStepArgs = <T>(
+  nameOrFn: string | (() => T | Promise<T>),
+  fnOrOptions?: (() => T | Promise<T>) | FunctionLogWrapOptions,
+  maybeOptions?: FunctionLogWrapOptions
+) => {
+  if (typeof nameOrFn === 'function') {
+    return {
+      name: undefined,
+      fn: nameOrFn,
+      options: fnOrOptions as FunctionLogWrapOptions | undefined,
+    }
+  }
+  return {
+    name: nameOrFn,
+    fn: fnOrOptions as () => T | Promise<T>,
+    options: maybeOptions,
+  }
+}
+
 const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
   context: CommonContext<TConfig>,
   layerName: CommonLayerName | string,
   domain: string,
   idBranchParent: Logger,
-  scopeFunctionName: string,
+  scopeName: string,
   templateCrossLayer: CrossLayerProps | undefined,
   templateAdditionalData: Record<string, any> | undefined,
-  logLevelGetter: GetFunctionWrapLogLevel
+  logLevelGetter: GetFunctionWrapLogLevel,
+  createFunctionCallId = true
 ): FunctionLogger => {
-  const templateCore = (() => {
-    const withIds = idBranchParent
-      .getIdLogger(scopeFunctionName, 'functionCallId', v4())
-      .applyData({
-        function: scopeFunctionName,
-      })
-    const withLogging = withIds.applyData(
-      combineLoggingProps(withIds, templateCrossLayer)
-    )
-    return templateAdditionalData
-      ? withLogging.applyData(templateAdditionalData)
-      : withLogging
-  })()
+  const templateCore = createScopedLoggerCore(
+    idBranchParent,
+    scopeName,
+    templateCrossLayer,
+    templateAdditionalData,
+    createFunctionCallId
+  )
 
-  const wrap = <T>(
-    fn: () => T | Promise<T>,
-    options?: FunctionLogWrapOptions
+  const wrapStep: FunctionLogger['wrapStep'] = <T>(
+    nameOrFn: string | (() => T | Promise<T>),
+    fnOrOptions?: (() => T | Promise<T>) | FunctionLogWrapOptions,
+    maybeOptions?: FunctionLogWrapOptions
   ) => {
-    const crossLayer = options?.crossLayerProps
-    const draft = idBranchParent
-      .getIdLogger(scopeFunctionName, 'functionCallId', v4())
-      .applyData({
-        function: scopeFunctionName,
-      })
-    const funcLogger = draft.applyData(combineLoggingProps(draft, crossLayer))
-    const omitWrapPayload = Boolean(
-      get(crossLayer, 'logging.overrides.omitData')
+    const { name, fn, options } = normalizeWrapStepArgs(
+      nameOrFn,
+      fnOrOptions,
+      maybeOptions
     )
-    const logLevel = logLevelGetter(layerName, scopeFunctionName)
+    if (name) {
+      const innerLogger = nestedGetInnerLogger(name, options?.crossLayerProps)
+      return innerLogger.wrapStep(
+        fn,
+        options?.args ? { args: options.args } : undefined
+      )
+    }
+    const funcLogger = options?.crossLayerProps
+      ? templateCore.applyData(
+          combineLoggingProps(templateCore, options.crossLayerProps)
+        )
+      : templateCore
+    const wrapCrossLayer = options?.crossLayerProps || templateCrossLayer
+    const omitWrapPayload = Boolean(
+      get(wrapCrossLayer, 'logging.overrides.omitData')
+    )
+    const logLevel = logLevelGetter(layerName, scopeName)
     const argsForExecuting = options?.args ?? []
     return runLayerFunctionWrapBlock(context, {
       layerName,
       domain,
-      functionName: scopeFunctionName,
+      functionName: name || scopeName,
       funcLogger,
       logLevel,
       omitWrapPayload,
       argsForExecuting,
       execute: fn,
     })
+  }
+
+  const wrap = <T>(
+    fn: () => T | Promise<T>,
+    options?: FunctionLogWrapOptions
+  ) => {
+    return wrapStep(fn, options)
   }
 
   const nestedGetFunctionLogger = (
@@ -231,22 +283,49 @@ const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
       childName,
       clp,
       undefined,
-      logLevelGetter
+      logLevelGetter,
+      true
     )
   }
 
   const nestedGetInnerLogger = (innerName: string, clp?: CrossLayerProps) => {
-    const inner = templateCore.getSubLogger(innerName).applyData({
-      function: innerName,
-    })
-    return inner.applyData(combineLoggingProps(inner, clp))
+    return buildExtendedFunctionLogger(
+      context,
+      layerName,
+      domain,
+      templateCore,
+      innerName,
+      clp,
+      undefined,
+      logLevelGetter,
+      false
+    )
+  }
+
+  const wrapFunctionCall: FunctionLogger['wrapFunctionCall'] = (
+    functionName,
+    fn,
+    options
+  ) => {
+    const functionLogger = nestedGetFunctionLogger(
+      functionName,
+      options?.crossLayerProps
+    )
+    const argsForExecuting = options?.args ?? []
+    return functionLogger.wrapStep(
+      () => fn(functionLogger, ...argsForExecuting),
+      {
+        args: argsForExecuting,
+      }
+    )
   }
 
   // @ts-ignore
   return merge({}, templateCore, {
     wrap,
+    wrapStep,
+    wrapFunctionCall,
     getFunctionLogger: nestedGetFunctionLogger,
-    getInnerLogger: nestedGetInnerLogger,
   })
 }
 
@@ -432,7 +511,7 @@ const _layerLogger = <TConfig extends Config = Config>(
       `config${CoreNamespace.root}.logging.getFunctionWrapLogLevel`
     ) as GetFunctionWrapLogLevel | undefined) || defaultGetFunctionWrapLogLevel
 
-  const getFunctionLogger = (
+  const buildFunctionLogger = (
     functionName: string,
     crossLayerProps?: CrossLayerProps
   ) => {
@@ -444,7 +523,8 @@ const _layerLogger = <TConfig extends Config = Config>(
       functionName,
       crossLayerProps,
       undefined,
-      logLevelGetter
+      logLevelGetter,
+      true
     )
   }
 
@@ -452,11 +532,16 @@ const _layerLogger = <TConfig extends Config = Config>(
     functionName: string,
     crossLayerProps?: CrossLayerProps
   ) => {
-    const funcLogger = theLogger.getSubLogger(functionName).applyData({
-      function: functionName,
-    })
-    return funcLogger.applyData(
-      combineLoggingProps(funcLogger, crossLayerProps)
+    return buildExtendedFunctionLogger(
+      context,
+      layerName,
+      domain,
+      theLogger,
+      functionName,
+      crossLayerProps,
+      undefined,
+      logLevelGetter,
+      false
     )
   }
 
@@ -472,7 +557,7 @@ const _layerLogger = <TConfig extends Config = Config>(
   ) => {
     return merge((...a: A) => {
       const [argsNoCrossLayer, crossLayer] = extractCrossLayerProps(a)
-      const beforeFuncLogger = getFunctionLogger(functionName, crossLayer)
+      const beforeFuncLogger = buildFunctionLogger(functionName, crossLayer)
       const funcLogger = additionalData
         ? beforeFuncLogger.applyData(additionalData)
         : beforeFuncLogger
@@ -506,7 +591,6 @@ const _layerLogger = <TConfig extends Config = Config>(
   // @ts-ignore
   return merge({}, theLogger, {
     getInnerLogger,
-    getFunctionLogger,
     _logWrap: <
       T,
       A extends Array<any>,

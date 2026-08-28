@@ -18,7 +18,12 @@ import fs from 'node:fs/promises'
 import assert from 'node:assert'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { CoreNamespace, LogFormat, LogLevelNames } from '../../src/types.js'
+import {
+  CoreNamespace,
+  type FunctionLogger,
+  LogFormat,
+  LogLevelNames,
+} from '../../src/types.js'
 import { loadSystem } from '../../src/entries.js'
 import { crossLayerPropsWithLoggingOverrides } from '../../src/libs.js'
 import { compositeLogger } from '../../src/globals/logging.js'
@@ -238,15 +243,15 @@ const createDomainWrapDemo = () => ({
   features: {
     create: (context: any) => ({
       runWrappedPipeline: async (crossLayerProps?: Record<string, unknown>) => {
-        const log = context.log.getFunctionLogger(
+        const log = context.log.getInnerLogger(
           'runWrappedPipeline',
           crossLayerProps
         )
-        return log.wrap(
+        return log.wrapStep(
           async () => {
-            const innerLog = log.getFunctionLogger('innerStep')
-            return innerLog.wrap(
-              async () => {
+            return log.wrapFunctionCall(
+              'innerStep',
+              async (innerLog: FunctionLogger) => {
                 innerLog.trace('inner trace', { detail: 'nested' })
                 return { step: 'inner-done' }
               },
