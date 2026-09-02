@@ -113,6 +113,11 @@ There are low level small functions that take one thing and give you something e
 
 These functions, either combine things and produce one thing, or make many things from one thing, or they take one thing and convert it into something else. Transforms is a probably the best technical word but we just call them "libs". One thing to note, every function of the libs layer, does "one primary thing" and should be as small as reasonable. Too many steps can (but not always) indicate it might be a feature.
 
+
+### "Where Does The Code Go?"
+![Decision Chart](./docs/layers-decision-chart.drawio.svg)
+
+
 ## More Layers
 
 In addition to the default layers, Node In Layers allows you to create new layers and place them where you want. Our ONLY requirement, is that default layers that are loaded (services, features, entries) must be above one another. Other than that, you can create layers below, above, or in between these.
