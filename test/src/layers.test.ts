@@ -780,9 +780,96 @@ const crossLayerPropsPreservationConfig = () => {
   }
 }
 
+const objectReferencePreservationConfig = () => {
+  const sharedObject = {
+    nested: {
+      value: 'shared',
+    },
+  }
+
+  const domain1 = {
+    name: 'domain1',
+    services: {
+      create: sinon.stub().returns({
+        sharedObject,
+      }),
+    },
+  }
+
+  const domain2 = {
+    name: 'domain2',
+    services: {
+      create: sinon.stub().callsFake(context => ({
+        getSharedObject: () => {
+          return context.services.domain1.sharedObject
+        },
+      })),
+    },
+  }
+
+  return {
+    config: {
+      environment: 'unit-test',
+      systemName: 'nil-core',
+      [CoreNamespace.root]: {
+        domains: [domain1, domain2],
+        layerOrder: ['services', 'features'],
+        logging: {
+          logFormat: LogFormat.full,
+          logLevel: LogLevelNames.trace,
+        },
+      },
+    },
+    sharedObject,
+  }
+}
+
+const contextPropertyRejectionConfig = () => {
+  const domain1 = {
+    name: 'domain1',
+    services: {
+      create: sinon.stub().callsFake(context => ({
+        context,
+        ping: () => 'ok',
+      })),
+    },
+  }
+
+  return {
+    environment: 'unit-test',
+    systemName: 'nil-core',
+    [CoreNamespace.root]: {
+      domains: [domain1],
+      layerOrder: ['services', 'features'],
+      logging: {
+        logFormat: LogFormat.full,
+        logLevel: LogLevelNames.trace,
+      },
+    },
+  }
+}
+
 describe('/src/layers.ts', () => {
   describe('#features.create()', () => {
     describe('#loadLayers()', () => {
+      it('should preserve non-function object references in wrapped contexts', async () => {
+        const { config, sharedObject } = objectReferencePreservationConfig()
+        const inputs = _setup(config)
+        const instance = features.create(inputs)
+        const context = await instance.loadLayers()
+        const actual = context.services.domain2.getSharedObject()
+        assert.strictEqual(actual, sharedObject)
+      })
+      it('should reject layers that expose a context property', async () => {
+        const config = contextPropertyRejectionConfig()
+        const inputs = _setup(config)
+        const instance = features.create(inputs)
+        const promise = instance.loadLayers()
+        await assert.isRejected(
+          promise,
+          /cannot expose a context property\. Use closure context instead\./
+        )
+      })
       it('should keep annotated functions intact even though they are wrdomained', async () => {
         const config = modelsConfig1()
         const inputs = _setup(config)

@@ -264,6 +264,7 @@ const buildExtendedFunctionLogger = <TConfig extends Config = Config>(
     })
   }
 
+  // eslint-disable-next-line functional/prefer-tacit
   const wrap = <T>(
     fn: () => T | Promise<T>,
     options?: FunctionLogWrapOptions

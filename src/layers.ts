@@ -2,7 +2,6 @@ import get from 'lodash/get.js'
 import flatten from 'lodash/flatten.js'
 import omit from 'lodash/omit.js'
 import merge from 'lodash/merge.js'
-import cloneDeep from 'lodash/cloneDeep.js'
 import { DataDescription, Model, ModelType } from 'functional-models'
 import { extractCrossLayerProps } from './globals/internal-libs.js'
 import {
@@ -54,6 +53,57 @@ const CONTEXT_TO_SKIP = {
 }
 
 export const name = CoreNamespace.layers
+
+const isRecord = (value: unknown): value is Record<string, any> => {
+  return typeof value === 'object' && value !== null
+}
+
+const mergeLayerRecords = <
+  TBase extends Record<string, any>,
+  TNext extends Record<string, any>,
+>(
+  base: TBase,
+  next: TNext
+): TBase & TNext => {
+  return Object.entries(next).reduce(
+    (acc, [key, value]) => {
+      const existingValue = acc[key]
+      if (!isRecord(existingValue) || !isRecord(value)) {
+        return Object.assign({}, acc, {
+          [key]: value,
+        })
+      }
+      const mergedValue = Object.entries(value).reduce(
+        (acc2, [innerKey, innerValue]) => {
+          const existingInnerValue = acc2[innerKey]
+          return Object.assign({}, acc2, {
+            [innerKey]:
+              isRecord(existingInnerValue) && isRecord(innerValue)
+                ? Object.assign({}, existingInnerValue, innerValue)
+                : innerValue,
+          })
+        },
+        Object.assign({}, existingValue)
+      )
+      return Object.assign({}, acc, {
+        [key]: mergedValue,
+      })
+    },
+    Object.assign({}, base) as Record<string, any>
+  ) as TBase & TNext
+}
+
+const assertNoContextProperty = (
+  domainName: string,
+  layerName: string,
+  layerValue: unknown
+) => {
+  if (isRecord(layerValue) && 'context' in layerValue) {
+    throw new Error(
+      `Domain ${domainName} layer ${layerName} cannot expose a context property. Use closure context instead.`
+    )
+  }
+}
 
 const modelGetter = <
   TConfig extends Config = Config,
@@ -219,7 +269,7 @@ export const features = {
       layerContext: LayerContext,
       currentLayer: string
     ): LayerContext => {
-      const withServices = merge({}, layerContext, {
+      const withServices = mergeLayerRecords(layerContext, {
         services: {
           getServices: _getServices,
         },
@@ -227,7 +277,7 @@ export const features = {
       if (!_canAccessFeatures(currentLayer)) {
         return withServices
       }
-      return merge({}, withServices, {
+      return mergeLayerRecords(withServices, {
         features: {
           getFeatures: _getFeatures,
         },
@@ -239,7 +289,7 @@ export const features = {
       layer: LayerRecord | undefined
     ) => {
       if (layer) {
-        return merge({}, commonContext, layer)
+        return mergeLayerRecords(commonContext, layer)
       }
       return commonContext
     }
@@ -275,6 +325,148 @@ export const features = {
         return true
       })
       return override ? override.factory : defaultFactory
+    }
+
+    const _wrapExistingLayerDomainForLoad = (
+      layerKey: string,
+      domainKey: string,
+      domainValue: Record<string, any>,
+      layerLogger: LayerContext['log'],
+      ignoreLayerFunctions: Record<string, any>,
+      crossLayerMergeOpts: ReturnType<typeof getOtelForwardBaggageFromConfig>
+    ) => {
+      assertNoContextProperty(domainKey, layerKey, domainValue)
+      return Object.fromEntries(
+        Object.entries(domainValue).map(([propertyName, func]) => {
+          const funcType = typeof func
+          if (funcType !== 'function') {
+            return [propertyName, func]
+          }
+
+          const functionLevelKey = `${domainKey}.${layerKey}.${propertyName}`
+          if (get(ignoreLayerFunctions, functionLevelKey)) {
+            return [propertyName, func]
+          }
+
+          const newFunc = merge((...args2) => {
+            const [argsNoCrossLayer, crossLayer] = extractCrossLayerProps(args2)
+            // Automatically create the crossLayerProps
+            // @ts-ignore
+            return func(
+              ...argsNoCrossLayer,
+              crossLayer !== undefined
+                ? crossLayer
+                : createCrossLayerProps(
+                    layerLogger,
+                    undefined,
+                    crossLayerMergeOpts
+                  )
+            )
+          }, func)
+          return [propertyName, newFunc]
+        })
+      )
+    }
+
+    const _buildWrappedContextForLoad = (
+      layerContext: LayerContext,
+      layerLogger: LayerContext['log'],
+      ignoreLayerFunctions: Record<string, any>,
+      crossLayerMergeOpts: ReturnType<typeof getOtelForwardBaggageFromConfig>
+    ) => {
+      return Object.fromEntries(
+        Object.entries(layerContext).map(([layerKey, layerData]) => {
+          if (layerKey in CONTEXT_TO_SKIP || !isRecord(layerData)) {
+            return [layerKey, layerData]
+          }
+
+          const finalLayerData = Object.fromEntries(
+            Object.entries(layerData).map(([domainKey, domainValue]) => {
+              if (!isRecord(domainValue)) {
+                return [domainKey, domainValue]
+              }
+              assertNoContextProperty(domainKey, layerKey, domainValue)
+
+              const layerLevelKey = `${domainKey}.${layerKey}`
+              if (get(ignoreLayerFunctions, layerLevelKey)) {
+                return [domainKey, domainValue]
+              }
+
+              return [
+                domainKey,
+                _wrapExistingLayerDomainForLoad(
+                  layerKey,
+                  domainKey,
+                  domainValue,
+                  layerLogger,
+                  ignoreLayerFunctions,
+                  crossLayerMergeOpts
+                ),
+              ]
+            })
+          )
+
+          return [layerKey, finalLayerData]
+        })
+      ) as LayerContext
+    }
+
+    const _withContextInjectedLayerMembers = (
+      domainName: string,
+      layerName: string,
+      layerContext: LayerContext,
+      layerData: GenericLayer
+    ) => {
+      const layerContextData = get(
+        layerContext,
+        `${layerName}.${domainName}`
+      ) as Record<string, any> | undefined
+      if (!layerContextData) {
+        return layerData
+      }
+      return Object.assign({}, layerData, layerContextData)
+    }
+
+    const _wrapLoadedLayerFunctions = (
+      domainName: string,
+      layerName: string,
+      layerData: GenericLayer,
+      layerLogger: LayerContext['log'],
+      ignoreLayerFunctions: Record<string, any>,
+      crossLayerMergeOpts: ReturnType<typeof getOtelForwardBaggageFromConfig>
+    ) => {
+      assertNoContextProperty(domainName, layerName, layerData)
+      return Object.fromEntries(
+        Object.entries(layerData).map(([propertyName, func]) => {
+          const funcType = typeof func
+          if (funcType !== 'function') {
+            return [propertyName, func]
+          }
+
+          const functionLevelKey = `${domainName}.${layerName}.${propertyName}`
+          if (get(ignoreLayerFunctions, functionLevelKey)) {
+            return [propertyName, func]
+          }
+
+          const newFunc = merge(
+            layerLogger._logWrap(
+              propertyName,
+              merge((log, ...args2) => {
+                const [argsNoCrossLayer, crossLayer] =
+                  extractCrossLayerProps(args2)
+                // Automatically create the crossLayerProps
+                // @ts-ignore
+                return func(
+                  ...argsNoCrossLayer,
+                  createCrossLayerProps(log, crossLayer, crossLayerMergeOpts)
+                )
+              }, func)
+            ),
+            func
+          )
+          return [propertyName, newFunc]
+        })
+      )
     }
 
     const _getModelLoadedContext = (
@@ -364,7 +556,7 @@ export const features = {
                 }
 
                 const instance = constructor.create(modelProps)
-                return merge(acc, {
+                return Object.assign({}, acc, {
                   [modelName]: instance,
                 })
               },
@@ -380,7 +572,7 @@ export const features = {
                   domain.name,
                   name
                 )
-                return merge(acc, {
+                return Object.assign({}, acc, {
                   [name]: factory(
                     () => getModels()[name],
                     layerContextWithGetters
@@ -389,26 +581,23 @@ export const features = {
               }, {})
             : undefined
 
-          return merge(
-            {},
-            layerContextWithGetters,
-            serviceCruds
-              ? {
-                  services: {
-                    [domain.name]: {
-                      cruds: serviceCruds,
-                    },
+          const withServiceCruds = serviceCruds
+            ? mergeLayerRecords(layerContextWithGetters, {
+                services: {
+                  [domain.name]: {
+                    cruds: serviceCruds,
                   },
-                }
-              : {},
-            {
-              models: {
-                [domain.name]: {
-                  getModels,
                 },
+              })
+            : layerContextWithGetters
+
+          return mergeLayerRecords(withServiceCruds, {
+            models: {
+              [domain.name]: {
+                getModels,
               },
-            }
-          )
+            },
+          })
         } else if (
           currentLayer === 'features' &&
           context.config['@node-in-layers/core'].modelCruds
@@ -427,7 +616,7 @@ export const features = {
                 domain.name,
                 name
               )
-              return merge(acc, {
+              return Object.assign({}, acc, {
                 [name]: factory<any>(
                   () => cruds.getModel(),
                   layerContextWithGetters,
@@ -440,7 +629,7 @@ export const features = {
             {}
           )
 
-          return merge({}, layerContextWithGetters, {
+          return mergeLayerRecords(layerContextWithGetters, {
             features: {
               [domain.name]: {
                 cruds: featureWrappers,
@@ -467,12 +656,9 @@ export const features = {
         .getLogger(layerContext1)
         .getDomainLogger(domain.name)
         .getLayerLogger(currentLayer)
-      const layerContext = cloneDeep(
-        // eslint-disable-next-line functional/immutable-data
-        Object.assign(layerContext1, {
-          log: layerLogger,
-        })
-      )
+      const layerContext = Object.assign({}, layerContext1, {
+        log: layerLogger,
+      }) as LayerContext
 
       const ignoreLayerFunctions = merge(
         commonContext.config[CoreNamespace.root].logging
@@ -540,70 +726,11 @@ export const features = {
         }
       }
 
-      const wrappedContext = Object.entries(layerContext).reduce(
-        (acc, [layerKey, layerData]) => {
-          const layerType = typeof layerData
-          if (layerKey in CONTEXT_TO_SKIP || layerType !== 'object') {
-            return merge(acc, { [layerKey]: layerData })
-          }
-          const finalLayerData = Object.entries(layerData).reduce(
-            (acc2, [domainKey, domainValue]) => {
-              const theType = typeof domainValue
-              // We are only looking for objects with functions
-              if (theType !== 'object') {
-                return merge(acc2, { [domainKey]: domainValue })
-              }
-
-              // Are we going to ignore any log wrapping for this domain's whole layer??
-              const layerLevelKey = `${domainKey}.${layerKey}`
-              if (get(ignoreLayerFunctions, layerLevelKey)) {
-                return merge(acc2, { [domainKey]: domainValue })
-              }
-
-              const domainData = Object.entries(domainValue).reduce(
-                (acc3, [propertyName, func]) => {
-                  const funcType = typeof func
-                  // We are only looking for objects with functions
-                  if (funcType !== 'function') {
-                    return merge(acc3, { [propertyName]: func })
-                  }
-
-                  // Are we going to ignore this function from wrapping
-                  const functionLevelKey = `${domainKey}.${layerKey}.${propertyName}`
-                  if (get(ignoreLayerFunctions, functionLevelKey)) {
-                    return merge(acc3, { [propertyName]: func })
-                  }
-
-                  // WE HAVE TO MERGE the function on top. If we are wrapping, we can loose annotated information.
-                  const newFunc = merge((...args2) => {
-                    const [argsNoCrossLayer, crossLayer] =
-                      extractCrossLayerProps(args2)
-                    // Automatically create the crossLayerProps
-                    // @ts-ignore
-                    return func(
-                      ...argsNoCrossLayer,
-                      crossLayer !== undefined
-                        ? crossLayer
-                        : createCrossLayerProps(
-                            layerLogger,
-                            undefined,
-                            crossLayerMergeOpts
-                          )
-                    )
-                  }, func)
-                  return merge(acc3, { [propertyName]: newFunc })
-                },
-                {}
-              )
-              return merge(acc2, { [domainKey]: domainData })
-            },
-            {} as any
-          )
-          return merge(acc, {
-            [layerKey]: finalLayerData,
-          })
-        },
-        {}
+      const wrappedContext = _buildWrappedContextForLoad(
+        layerContext,
+        layerLogger,
+        ignoreLayerFunctions,
+        crossLayerMergeOpts
       )
 
       const layer = context.services[CoreNamespace.layers].loadLayer(
@@ -620,52 +747,48 @@ export const features = {
         return {}
       }
 
+      const layerWithInjectedMembers = _withContextInjectedLayerMembers(
+        domain.name,
+        currentLayer,
+        layerContext,
+        theLayer
+      )
+      assertNoContextProperty(
+        domain.name,
+        currentLayer,
+        layerWithInjectedMembers
+      )
+
       // Are we going to ignore any log wrapping for this domain's whole layer??
       const layerLevelKey = `${domain.name}.${currentLayer}`
       const shouldIgnore = get(ignoreLayerFunctions, layerLevelKey)
 
       const finalLayer = shouldIgnore
-        ? theLayer
-        : Object.entries(theLayer).reduce((acc, [propertyName, func]) => {
-            const funcType = typeof func
-            // We are only looking for objects with functions
-            if (funcType !== 'function') {
-              return merge(acc, { [propertyName]: func })
-            }
+        ? layerWithInjectedMembers
+        : _wrapLoadedLayerFunctions(
+            domain.name,
+            currentLayer,
+            layerWithInjectedMembers,
+            layerLogger,
+            ignoreLayerFunctions,
+            crossLayerMergeOpts
+          )
 
-            // Are we going to ignore this function from wrapping
-            const functionLevelKey = `${domain.name}.${currentLayer}.${propertyName}`
-            if (get(ignoreLayerFunctions, functionLevelKey)) {
-              return merge(acc, { [propertyName]: func })
-            }
-
-            const newFunc = merge(
-              layerLogger._logWrap(
-                propertyName,
-                merge((log, ...args2) => {
-                  const [argsNoCrossLayer, crossLayer] =
-                    extractCrossLayerProps(args2)
-                  // Automatically create the crossLayerProps
-                  // @ts-ignore
-                  return func(
-                    ...argsNoCrossLayer,
-                    createCrossLayerProps(log, crossLayer, crossLayerMergeOpts)
-                  )
-                }, func)
-              ),
-              func
-            )
-            return merge(acc, { [propertyName]: newFunc })
-          }, {})
-
-      return merge(
-        {
-          [currentLayer]: {
-            [domain.name]: finalLayer,
-          },
+      const layerResult = {
+        [currentLayer]: {
+          [domain.name]: finalLayer,
         },
-        layerContext
-      )
+      }
+      const modelsForDomain = get(layerContext, `models.${domain.name}`) as
+        | Record<string, any>
+        | undefined
+      return currentLayer === 'services' && modelsForDomain
+        ? mergeLayerRecords(layerResult, {
+            models: {
+              [domain.name]: modelsForDomain,
+            },
+          })
+        : layerResult
     }
 
     const _loadCompositeLayer = async (
@@ -675,166 +798,86 @@ export const features = {
       previousLayer: LayerRecord | undefined,
       antiLayers: (layer: string) => readonly string[]
     ): Promise<LayerRecord> => {
-      return currentLayer.reduce(async (previousSubLayersP, layer) => {
-        const previousSubLayers = isPromise(previousSubLayersP)
-          ? await previousSubLayersP
-          : previousSubLayersP
+      return currentLayer.reduce(
+        async (previousSubLayersP, layer) => {
+          const previousSubLayers = isPromise(previousSubLayersP)
+            ? await previousSubLayersP
+            : previousSubLayersP
 
-        const layersToRemove = antiLayers(layer)
-        // We need common context PLUS the previous layers.
-        const theContext1 = omit(
-          merge({}, commonContext, previousSubLayers),
-          layersToRemove
-        )
-        const layerLogger = context.rootLogger
-          // @ts-ignore
-          .getLogger(theContext1)
-          .getDomainLogger(domain.name)
-          .getLayerLogger(layer)
-        // eslint-disable-next-line
-        const theContext = Object.assign(theContext1, {
-          log: layerLogger,
-        })
-        const layerContext = _addFinalizedDomainGetters(
-          _getLayerContext(theContext as LayerContext, previousLayer),
-          layer
-        )
+          const layersToRemove = antiLayers(layer)
+          // We need common context PLUS the previous layers.
+          const theContext1 = omit(
+            mergeLayerRecords(commonContext, previousSubLayers),
+            layersToRemove
+          )
+          const layerLogger = context.rootLogger
+            // @ts-ignore
+            .getLogger(theContext1)
+            .getDomainLogger(domain.name)
+            .getLayerLogger(layer)
+          const theContext = Object.assign({}, theContext1, {
+            log: layerLogger,
+          })
+          const layerContext = _addFinalizedDomainGetters(
+            _getLayerContext(theContext as LayerContext, previousLayer),
+            layer
+          )
 
-        const ignoreLayerFunctions =
-          commonContext.config[CoreNamespace.root].logging
-            ?.ignoreLayerFunctions || {}
-        const crossLayerMergeOpts = getOtelForwardBaggageFromConfig(
-          commonContext.config
-        )
+          const ignoreLayerFunctions =
+            commonContext.config[CoreNamespace.root].logging
+              ?.ignoreLayerFunctions || {}
+          const crossLayerMergeOpts = getOtelForwardBaggageFromConfig(
+            commonContext.config
+          )
 
-        const wrappedContext = Object.entries(layerContext).reduce(
-          (acc, [layerKey, layerData]) => {
-            const layerType = typeof layerData
-            if (layerKey in CONTEXT_TO_SKIP || layerType !== 'object') {
-              return merge(acc, { [layerKey]: layerData })
-            }
-            const finalLayerData = Object.entries(layerData).reduce(
-              (acc2, [domainKey, domainValue]) => {
-                const theType = typeof domainValue
-                // We are only looking for objects with functions
-                if (theType !== 'object') {
-                  return merge(acc2, { [domainKey]: domainValue })
-                }
+          const wrappedContext = _buildWrappedContextForLoad(
+            layerContext,
+            layerLogger,
+            ignoreLayerFunctions,
+            crossLayerMergeOpts
+          )
 
-                // Are we going to ignore any log wrapping for this domain's whole layer??
-                const layerLevelKey = `${domainKey}.${layerKey}`
-                if (get(ignoreLayerFunctions, layerLevelKey)) {
-                  return merge(acc2, { [domainKey]: domainValue })
-                }
+          const loadedLayer = context.services[CoreNamespace.layers].loadLayer(
+            domain,
+            layer,
+            // @ts-ignore
+            wrappedContext
+          )
+          if (!loadedLayer) {
+            return previousSubLayers
+          }
 
-                const domainData = Object.entries(domainValue).reduce(
-                  (acc3, [propertyName, func]) => {
-                    const funcType = typeof func
-                    // We are only looking for objects with functions
-                    if (funcType !== 'function') {
-                      return merge(acc3, { [propertyName]: func })
-                    }
+          const theLayer =
+            (isPromise(loadedLayer)
+              ? ((await loadedLayer) as GenericLayer | undefined)
+              : loadedLayer) || {}
+          assertNoContextProperty(domain.name, layer, theLayer)
 
-                    // Are we going to ignore this function from wrapping
-                    const functionLevelKey = `${domainKey}.${layerKey}.${propertyName}`
-                    if (get(ignoreLayerFunctions, functionLevelKey)) {
-                      return merge(acc3, { [propertyName]: func })
-                    }
+          // Are we going to ignore any log wrapping for this domain's whole layer??
+          const layerLevelKey = `${domain.name}.${layer}`
+          const shouldIgnore = get(ignoreLayerFunctions, layerLevelKey)
 
-                    const newFunc = merge((...args2) => {
-                      const [argsNoCrossLayer, crossLayer] =
-                        extractCrossLayerProps(args2)
-                      // Automatically create the crossLayerProps
-                      // @ts-ignore
-                      return func(
-                        ...argsNoCrossLayer,
-                        crossLayer !== undefined
-                          ? crossLayer
-                          : createCrossLayerProps(
-                              layerLogger,
-                              undefined,
-                              crossLayerMergeOpts
-                            )
-                      )
-                    }, func)
-                    return merge(acc3, { [propertyName]: newFunc })
-                  },
-                  {}
-                )
-                return merge(acc2, { [domainKey]: domainData })
-              },
-              {} as any
-            )
-            return merge(acc, {
-              [layerKey]: finalLayerData,
-            })
-          },
-          {}
-        )
-
-        const loadedLayer = context.services[CoreNamespace.layers].loadLayer(
-          domain,
-          layer,
-          // @ts-ignore
-          wrappedContext
-        )
-        if (!loadedLayer) {
-          return previousSubLayers
-        }
-
-        const theLayer = isPromise(loadedLayer)
-          ? await loadedLayer
-          : loadedLayer
-
-        // Are we going to ignore any log wrapping for this domain's whole layer??
-        const layerLevelKey = `${domain.name}.${layer}`
-        const shouldIgnore = get(ignoreLayerFunctions, layerLevelKey)
-
-        const finalLayer = shouldIgnore
-          ? theLayer
-          : // @ts-ignore
-            Object.entries(theLayer).reduce((acc, [propertyName, func]) => {
-              const funcType = typeof func
-              // We are only looking for objects with functions
-              if (funcType !== 'function') {
-                return merge(acc, { [propertyName]: func })
-              }
-              // Are we going to ignore this function from wrapping
-              const functionLevelKey = `${domain.name}.${layer}.${propertyName}`
-              if (get(ignoreLayerFunctions, functionLevelKey)) {
-                return merge(acc, { [propertyName]: func })
-              }
-              const newFunc = merge(
-                layerLogger._logWrap(
-                  propertyName,
-                  merge((log, ...args2) => {
-                    const [argsNoCrossLayer, crossLayer] =
-                      extractCrossLayerProps(args2)
-                    // Automatically create the crossLayerProps
-                    // @ts-ignore
-                    return func(
-                      ...argsNoCrossLayer,
-                      createCrossLayerProps(
-                        log,
-                        crossLayer,
-                        crossLayerMergeOpts
-                      )
-                    )
-                  }, func)
-                ),
-                func
+          const finalLayer = shouldIgnore
+            ? theLayer
+            : _wrapLoadedLayerFunctions(
+                domain.name,
+                layer,
+                theLayer,
+                layerLogger,
+                ignoreLayerFunctions,
+                crossLayerMergeOpts
               )
-              return merge(acc, { [propertyName]: newFunc })
-            }, {})
 
-        // We have to create a NEW context to be passed along each time. If we put acc as the first arg, all the other sub-layers will magically get things they can't have.
-        const result = merge({}, previousSubLayers, {
-          [layer]: {
-            [domain.name]: finalLayer,
-          },
-        })
-        return result
-      }, {})
+          // We have to create a NEW context to be passed along each time. If we put acc as the first arg, all the other sub-layers will magically get things they can't have.
+          const result = mergeLayerRecords(previousSubLayers, {
+            [layer]: {
+              [domain.name]: finalLayer,
+            },
+          })
+          return result
+        },
+        Promise.resolve({} as LayerRecord)
+      )
     }
 
     const loadLayers = (): Promise<FeaturesContext> => {
@@ -889,8 +932,7 @@ export const features = {
               if (!layerInstance) {
                 return [existingLayers2, {}]
               }
-              const newContext: LayerContext = merge(
-                {},
+              const newContext: LayerContext = mergeLayerRecords(
                 existingLayers2,
                 layerInstance
               )
