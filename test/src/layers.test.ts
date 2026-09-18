@@ -849,6 +849,62 @@ const contextPropertyRejectionConfig = () => {
   }
 }
 
+const compositeLayerSeesEarlierLayersConfig = () => {
+  let capturedContext: any
+
+  const domain1Models = {
+    Jobs: {
+      create: (props: any) => {
+        return props.Model({
+          pluralName: 'Jobs',
+          namespace: 'domain1',
+          properties: {
+            id: PrimaryKeyUuidProperty(),
+          },
+        })
+      },
+    },
+  }
+
+  const domain1 = {
+    name: 'domain1',
+    models: domain1Models,
+    services: {
+      create: sinon.stub().returns({
+        serviceMethod: () => 'ok',
+      }),
+    },
+    features: {
+      create: sinon.stub().returns({
+        featureMethod: () => 'ok',
+      }),
+    },
+    express: {
+      create: sinon.stub().callsFake(context => {
+        capturedContext = context
+        return {}
+      }),
+    },
+  }
+
+  return {
+    config: {
+      environment: 'unit-test',
+      systemName: 'nil-core',
+      [CoreNamespace.root]: {
+        domains: [domain1],
+        layerOrder: ['services', 'features', ['entries', 'express']],
+        modelCruds: true,
+        logging: {
+          logFormat: LogFormat.full,
+          logLevel: LogLevelNames.trace,
+        },
+      },
+    },
+    getCapturedContext: () => capturedContext,
+  }
+}
+
 describe('/src/layers.ts', () => {
   describe('#features.create()', () => {
     describe('#loadLayers()', () => {
@@ -869,6 +925,18 @@ describe('/src/layers.ts', () => {
           promise,
           /cannot expose a context property\. Use closure context instead\./
         )
+      })
+      it('should expose same-domain services and feature cruds to later composite layers during create', async () => {
+        const { config, getCapturedContext } =
+          compositeLayerSeesEarlierLayersConfig()
+        const inputs = _setup(config)
+        const instance = features.create(inputs)
+        await instance.loadLayers()
+        const capturedContext = getCapturedContext()
+        assert.isFunction(capturedContext.services.domain1.serviceMethod)
+        assert.isOk(capturedContext.services.domain1.cruds.Jobs)
+        assert.isFunction(capturedContext.features.domain1.featureMethod)
+        assert.isOk(capturedContext.features.domain1.cruds.Jobs)
       })
       it('should keep annotated functions intact even though they are wrdomained', async () => {
         const config = modelsConfig1()

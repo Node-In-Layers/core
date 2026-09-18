@@ -912,7 +912,7 @@ export const features = {
 
               // We have to remove existing layers that we don't want to be exposed.
               const correctContext = omit(
-                existingLayers,
+                existingLayers2,
                 layersToRemove.concat('log')
               ) as LayerContext
               const layerInstance = await (Array.isArray(layer)
