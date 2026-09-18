@@ -94,6 +94,14 @@ describe('/src/models/internal-libs.ts', () => {
         assert.isTrue(instanceStub.save.calledOnce)
         assert.equal(result, instanceStub)
       })
+
+      it('should create from ToObjectResult input', async () => {
+        const cruds = createModelCruds<TestData>(modelStub)
+        const data = { id: '2', name: 'test' } as ToObjectResult<TestData>
+        const result = await cruds.create(data)
+
+        assert.equal(result, instanceStub)
+      })
     })
 
     describe('#retrieve()', () => {

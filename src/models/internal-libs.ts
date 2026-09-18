@@ -110,6 +110,7 @@ export const createModelCruds = <TData extends DataDescription>(
   })
 
   const createFunction = <IgnoreProperties extends string = ''>(
+    // @ts-ignore
     data: Omit<TData, IgnoreProperties> | ToObjectResult<TData>,
     crossLayerProps?: CrossLayerProps
   ): Promise<OrmModelInstance<TData>> => {
@@ -173,6 +174,7 @@ export const createModelCruds = <TData extends DataDescription>(
 
   const updateFunction = (
     primaryKey: PrimaryKeyType,
+    // @ts-ignore
     data: TData | ToObjectResult<TData>,
     crossLayerProps?: CrossLayerProps
   ): Promise<OrmModelInstance<TData>> => {
